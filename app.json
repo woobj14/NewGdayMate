@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "G'day Mate",
+    "slug": "gdaymate",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#5B50F0"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.gdaymate.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "스피킹 연습을 위해 마이크를 사용합니다.",
+        "NSSpeechRecognitionUsageDescription": "발음 채점을 위해 음성 인식을 사용합니다."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#5B50F0"
+      },
+      "package": "com.gdaymate.app",
+      "permissions": [
+        "RECORD_AUDIO",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "headers": [
+        {
+          "source": "/**",
+          "headers": [
+            {
+              "key": "Content-Security-Policy",
+              "value": "script-src 'self' 'unsafe-eval' 'unsafe-inline'; worker-src 'self' blob:;"
+            }
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#5B50F0"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "스피킹 연습을 위해 마이크를 사용합니다."
+        }
+      ],
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "scheme": "gdaymate",
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
+    }
+  }
+}
