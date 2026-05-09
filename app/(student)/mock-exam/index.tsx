@@ -361,7 +361,7 @@ export default function MockExamScreen() {
             </Text>
           </Pressable>
           <Pressable style={[s.btnSecondary, { marginTop: 10 }]}
-            onPress={() => router.replace('/(student)/' as any)}>
+            onPress={() => router.replace('/student-home' as any)}>
             <Text style={[Typography.bold1, { color: Colors.ink2 }]}>홈으로</Text>
           </Pressable>
         </View>

@@ -51,7 +51,7 @@ export default function ProfileScreen() {
         academyId:   academyId || undefined,
         accountType: academyId ? 'b2b' : 'b2c',
       });
-      router.replace('/(student)/' as any);
+      router.replace('/student-home' as any);
     } catch (e: any) {
       console.error('[ProfileScreen] signUp failed:', e.code, e.message);
       const msg =

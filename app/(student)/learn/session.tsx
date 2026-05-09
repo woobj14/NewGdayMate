@@ -219,7 +219,7 @@ export default function SessionScreen() {
       <View style={s.bottomBar}>
         <Pressable
           style={[s.startBtn, { backgroundColor:Colors.green, ...Shadow.green as any }]}
-          onPress={() => router.replace('/(student)/' as any)}
+          onPress={() => router.replace('/student-home' as any)}
         >
           <Text style={[Typography.bold1, { color:'#fff' }]}>홈으로 돌아가기 </Text>
         </Pressable>

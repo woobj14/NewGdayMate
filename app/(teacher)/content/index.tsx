@@ -779,7 +779,7 @@ export default function ContentUploadScreen() {
               <Text style={[Typography.label2, { color:Colors.ink3 }]}>·</Text>
               <Text style={[Typography.label2, { color:Colors.ink3 }]}>퀴즈 {previewQuizCount}문항</Text>
             </View>
-            <Pressable style={[s.doneBtn, { marginTop:32 }]} onPress={() => router.replace('/(teacher)/' as any)}>
+            <Pressable style={[s.doneBtn, { marginTop:32 }]} onPress={() => router.replace('/teacher-home' as any)}>
               <Text style={[Typography.bold1, { color:'#fff' }]}>대시보드로 돌아가기</Text>
             </Pressable>
             <Pressable style={[s.doneBtn, { backgroundColor:Colors.green, marginTop:10 }]}

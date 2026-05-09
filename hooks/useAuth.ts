@@ -21,9 +21,9 @@ import { useAppStore, User, Role } from '../stores/useAppStore';
 SplashScreen.preventAutoHideAsync();
 
 const ROLE_ROUTES: Record<Role, string> = {
-  student: '/(student)/',
-  teacher: '/(teacher)/',
-  admin:   '/(admin)/',
+  student: '/student-home',
+  teacher: '/teacher-home',
+  admin:   '/admin-home',
 };
 
 const LOCAL_ADMIN_ID = 'admin';
