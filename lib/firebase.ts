@@ -4,23 +4,43 @@
 // 수정 전 CLAUDE.md 확인 필수 | 보안 규칙 변경 시 즉시 배포 필수
 // ═══════════════════════════════════════════════════════════════
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth }       from 'firebase/auth';
+import { getAuth, type Auth } from 'firebase/auth';
 import { initializeFirestore, getFirestore, type Firestore } from 'firebase/firestore';
-import { getStorage }    from 'firebase/storage';
-import { getFunctions }  from 'firebase/functions';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { getFunctions, type Functions }  from 'firebase/functions';
+
+function normalizeEnv(value?: string) {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+const isServer = typeof window === 'undefined';
 
 const firebaseConfig = {
-  apiKey:            process.env.EXPO_PUBLIC_FIREBASE_API_KEY!,
-  authDomain:        process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN!,
-  projectId:         process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID!,
-  storageBucket:     process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET!,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
-  appId:             process.env.EXPO_PUBLIC_FIREBASE_APP_ID!,
+  apiKey:            normalizeEnv(process.env.EXPO_PUBLIC_FIREBASE_API_KEY),
+  authDomain:        normalizeEnv(process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN),
+  projectId:         normalizeEnv(process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID),
+  storageBucket:     normalizeEnv(process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET),
+  messagingSenderId: normalizeEnv(process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID),
+  appId:             normalizeEnv(process.env.EXPO_PUBLIC_FIREBASE_APP_ID),
 };
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const hasFirebaseConfig = Object.values(firebaseConfig).every(Boolean);
+const app = hasFirebaseConfig
+  ? (getApps().length === 0 ? initializeApp(firebaseConfig) : getApp())
+  : null;
 
 function initFirestore(): Firestore {
+  if (!app) {
+    throw new Error('Firebase config is missing.');
+  }
   try {
     return initializeFirestore(app, {
       experimentalForceLongPolling: true,
@@ -31,10 +51,10 @@ function initFirestore(): Firestore {
   }
 }
 
-export const auth      = getAuth(app);
-export const db        = initFirestore();
-export const storage   = getStorage(app);
-export const functions = getFunctions(app, 'asia-northeast3');
+export const auth = (!isServer && app ? getAuth(app) : null) as Auth;
+export const db = (!isServer && app ? initFirestore() : null) as Firestore;
+export const storage = (!isServer && app ? getStorage(app) : null) as FirebaseStorage;
+export const functions = (!isServer && app ? getFunctions(app, 'asia-northeast3') : null) as Functions;
 
 // Firestore 컬렉션 레퍼런스 헬퍼
 import { collection, doc } from 'firebase/firestore';
