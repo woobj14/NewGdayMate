@@ -81,7 +81,7 @@ export default function ProfileScreen() {
       const msg =
         e.code === 'auth/email-already-in-use' ? '이미 사용 중인 이메일이에요.' :
         e.code === 'auth/phone-already-in-use' ? '이미 가입된 휴대폰 번호예요.' :
-        e.code === 'auth/weak-password'         ? '비밀번호가 너무 약해요.' :
+        e.code === 'auth/weak-password'         ? '비밀번호는 영문 대소문자, 숫자, 특수문자를 포함한 8자 이상이어야 해요.' :
         e.code === 'auth/invalid-email'         ? '올바른 이메일 형식이 아니에요.' :
         e.code === 'auth/invalid-phone-number'  ? '휴대폰 번호를 정확히 입력해 주세요.' :
         e.code === 'auth/academy-name-required' ? '학원 이름을 입력해 주세요.' :

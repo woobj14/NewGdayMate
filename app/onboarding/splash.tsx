@@ -14,7 +14,7 @@ import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
 
 type Mode = 'landing' | 'signup' | 'login';
-const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{8,}$/;
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -81,7 +81,7 @@ export default function SplashScreen() {
       return;
     }
     if (!PASSWORD_RULE.test(password)) {
-      setError('비밀번호는 영문 대소문자, 특수문자를 포함한 8자 이상이어야 해요.');
+      setError('비밀번호는 영문 대소문자, 숫자, 특수문자를 포함한 8자 이상이어야 해요.');
       return;
     }
     if (password !== confirmPassword) {
@@ -199,7 +199,7 @@ export default function SplashScreen() {
           style={[s.input, password.length > 0 && { borderColor: Colors.brand }]}
           value={password}
           onChangeText={v => { setPassword(v); setError(''); }}
-          placeholder={isLogin ? '비밀번호' : '영문 대소문자+특수문자 포함 8자 이상'}
+          placeholder={isLogin ? '비밀번호' : '영문 대소문자+숫자+특수문자 포함 8자 이상'}
           placeholderTextColor={Colors.ink3}
           secureTextEntry
         />
