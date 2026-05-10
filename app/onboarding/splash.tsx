@@ -14,14 +14,18 @@ import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
 
 type Mode = 'landing' | 'signup' | 'login';
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{8,}$/;
 
 export default function SplashScreen() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
 
   const [mode,     setMode]     = useState<Mode>('landing');
+  const [region,   setRegion]   = useState('');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
 
@@ -37,6 +41,7 @@ export default function SplashScreen() {
       const msg =
         e.code === 'firestore/profile-read-timeout' ? 'Firestore Database/API를 활성화한 뒤 다시 시도해 주세요.' :
         e.code === 'auth/profile-not-found'         ? '프로필 정보가 없어요. 다시 회원가입해 주세요.' :
+        e.code === 'auth/email-not-verified'        ? '이메일 인증 후 로그인할 수 있어요. 메일함을 확인해 주세요.' :
         '이메일 또는 비밀번호를 확인해 주세요.';
       setError(msg);
     } finally {
@@ -44,16 +49,58 @@ export default function SplashScreen() {
     }
   };
 
+  const handleGoogleAuth = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await signInWithGoogle();
+    } catch (e: any) {
+      if (e.code === 'auth/popup-closed-by-user') {
+        setError('Google 로그인 창이 닫혔어요. 다시 시도해 주세요.');
+      } else if (e.code === 'auth/configuration-not-found') {
+        setError('Firebase Auth 설정을 확인해 주세요.');
+      } else if (e.code === 'auth/account-exists-with-different-credential') {
+        setError('같은 이메일로 다른 로그인 방식이 이미 연결되어 있어요.');
+      } else {
+        setError('Google 로그인 중 오류가 발생했어요. 다시 시도해 주세요.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 회원가입은 다음 단계(role)로 이메일/비번 전달
   const handleSignupNext = () => {
-    if (!email.trim() || password.length < 6) {
-      setError('이메일과 6자 이상의 비밀번호를 입력해 주세요.');
+    const normalizedPhone = phoneNumber.replace(/\D/g, '');
+    if (!region.trim()) {
+      setError('지역을 입력해 주세요.');
+      return;
+    }
+    if (!email.trim()) {
+      setError('이메일을 입력해 주세요.');
+      return;
+    }
+    if (!PASSWORD_RULE.test(password)) {
+      setError('비밀번호는 영문 대소문자, 특수문자를 포함한 8자 이상이어야 해요.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('비밀번호가 서로 일치하지 않아요.');
+      return;
+    }
+    if (normalizedPhone.length < 10) {
+      setError('휴대폰 번호를 정확히 입력해 주세요.');
       return;
     }
     setError('');
     router.push({
       pathname: '/onboarding/role',
-      params: { email: email.trim(), password },
+      params: {
+        region: region.trim(),
+        email: email.trim(),
+        password,
+        phoneNumber: normalizedPhone,
+      },
     });
   };
 
@@ -101,14 +148,14 @@ export default function SplashScreen() {
         {/* 스텝 인디케이터 — 회원가입만 */}
         {!isLogin && (
           <View style={s.dots}>
-            {[true, false, false, false].map((a, i) => (
+            {[true, false, false].map((a, i) => (
               <View key={i} style={[s.dot, a && s.dotActive]} />
             ))}
           </View>
         )}
 
         <Text style={[Typography.label2, { color: Colors.ink3, marginBottom: 6 }]}>
-          {isLogin ? '로그인' : 'Step 1 / 4'}
+          {isLogin ? '로그인' : 'Step 1 / 3'}
         </Text>
         <Text style={[Typography.h1, { marginBottom: 6 }]}>
           {isLogin ? '다시 만나서\n반가워요' : '계정을\n만들어 볼게요'}
@@ -116,8 +163,22 @@ export default function SplashScreen() {
         <Text style={[Typography.body2, { color: Colors.ink3, marginBottom: 28, lineHeight: 24 }]}>
           {isLogin
             ? '학습 기록이 기다리고 있어요.'
-            : '이메일과 비밀번호를 입력해 주세요.'}
+            : '지역, 연락처와 함께 가입 정보를 입력해 주세요.'}
         </Text>
+
+        {!isLogin && (
+          <>
+            <Text style={s.inputLabel}>지역</Text>
+            <TextInput
+              style={[s.input, region.length > 0 && { borderColor: Colors.brand }]}
+              value={region}
+              onChangeText={v => { setRegion(v); setError(''); }}
+              placeholder="예: 서울 강남구"
+              placeholderTextColor={Colors.ink3}
+              maxLength={20}
+            />
+          </>
+        )}
 
         {/* 이메일 */}
         <Text style={s.inputLabel}>이메일</Text>
@@ -138,10 +199,35 @@ export default function SplashScreen() {
           style={[s.input, password.length > 0 && { borderColor: Colors.brand }]}
           value={password}
           onChangeText={v => { setPassword(v); setError(''); }}
-          placeholder={isLogin ? '비밀번호' : '6자 이상'}
+          placeholder={isLogin ? '비밀번호' : '영문 대소문자+특수문자 포함 8자 이상'}
           placeholderTextColor={Colors.ink3}
           secureTextEntry
         />
+
+        {!isLogin && (
+          <>
+            <Text style={s.inputLabel}>비밀번호 재입력</Text>
+            <TextInput
+              style={[s.input, confirmPassword.length > 0 && { borderColor: Colors.brand }]}
+              value={confirmPassword}
+              onChangeText={v => { setConfirmPassword(v); setError(''); }}
+              placeholder="비밀번호를 다시 입력해 주세요"
+              placeholderTextColor={Colors.ink3}
+              secureTextEntry
+            />
+
+            <Text style={s.inputLabel}>휴대폰 번호</Text>
+            <TextInput
+              style={[s.input, phoneNumber.length > 0 && { borderColor: Colors.brand }]}
+              value={phoneNumber}
+              onChangeText={v => { setPhoneNumber(v); setError(''); }}
+              placeholder="01012345678"
+              placeholderTextColor={Colors.ink3}
+              keyboardType="phone-pad"
+              maxLength={13}
+            />
+          </>
+        )}
 
         {/* 에러 메시지 */}
         {error ? (
@@ -150,13 +236,30 @@ export default function SplashScreen() {
 
         {/* 버튼 */}
         <Pressable
-          style={[s.btnPrimary, (!email || !password || loading) && { opacity: 0.4 }]}
+          style={[s.btnPrimary, (
+            isLogin
+              ? (!email || !password || loading)
+              : (!region || !email || !password || !confirmPassword || !phoneNumber || loading)
+          ) && { opacity: 0.4 }]}
           onPress={isLogin ? handleLogin : handleSignupNext}
-          disabled={!email || !password || loading}
+          disabled={
+            isLogin
+              ? (!email || !password || loading)
+              : (!region || !email || !password || !confirmPassword || !phoneNumber || loading)
+          }
         >
           <Text style={s.btnPrimaryTxt}>
             {loading ? '확인 중...' : isLogin ? '로그인' : '다음으로'}
           </Text>
+        </Pressable>
+
+        <Pressable
+          style={[s.googleBtn, loading && { opacity: 0.5 }]}
+          onPress={handleGoogleAuth}
+          disabled={loading}
+        >
+          <Text style={s.googleIcon}>G</Text>
+          <Text style={s.googleBtnTxt}>{isLogin ? 'Google로 로그인' : 'Google로 시작하기'}</Text>
         </Pressable>
 
         {/* 모드 전환 */}
@@ -183,6 +286,9 @@ const s = StyleSheet.create({
   btns:         { width: '100%', gap: 10 },
   btnPrimary:   { backgroundColor: Colors.brand, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   btnPrimaryTxt:{ ...Typography.bold1, color: '#fff', letterSpacing: -.3 },
+  googleBtn:    { marginTop: 10, borderRadius: 16, borderWidth: 1.5, borderColor: Colors.line, paddingVertical: 14, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 10, backgroundColor: Colors.white },
+  googleIcon:   { fontFamily: 'Pretendard-Bold', fontSize: 18, color: Colors.ink },
+  googleBtnTxt: { ...Typography.bold2, color: Colors.ink2 },
   btnGhost:     { borderRadius: 16, borderWidth: 1.5, borderColor: Colors.line, paddingVertical: 14, alignItems: 'center' },
   btnGhostTxt:  { ...Typography.bold2, color: Colors.ink2 },
   backBtn:      { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: Colors.line, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },

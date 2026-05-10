@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CoachKey } from '../lib/gemini';
 
 export type Role = 'student' | 'teacher' | 'admin';
+export type MembershipTier = 'basic' | 'professional' | 'superb';
 
 export interface User {
   uid:         string;
@@ -16,9 +17,16 @@ export interface User {
   displayName: string;
   avatar:      string;
   role:        Role;
+  region?:     string;
+  phoneNumber?: string;
+  phoneKey?:   string;
   academyId?:  string;
+  academyName?: string;
   classId?:    string;
   grade?:      string;
+  teacherUid?: string;
+  teacherCode?: string;
+  membershipTier?: MembershipTier;
   accountType: 'b2c' | 'b2b';
 }
 

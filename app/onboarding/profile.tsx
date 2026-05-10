@@ -20,21 +20,35 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { signUp } = useAuth();
 
-  const { email, password, role, academyId, academyName } = useLocalSearchParams<{
-    email:       string;
-    password:    string;
-    role:        string;
-    academyId:   string;
-    academyName: string;
+  const { region: initialRegion, email, password, phoneNumber: initialPhoneNumber, role, authMethod } = useLocalSearchParams<{
+    region?: string;
+    email?: string;
+    password?: string;
+    phoneNumber?: string;
+    role?: string;
+    authMethod?: 'password' | 'google';
   }>();
 
   const [avatar,  setAvatar]  = useState('🦊');
   const [name,    setName]    = useState('');
   const [grade,   setGrade]   = useState(2);   // 중3 기본
+  const [region, setRegion] = useState(initialRegion ?? '');
+  const [phoneNumber, setPhoneNumber] = useState(initialPhoneNumber ?? '');
+  const [academyName, setAcademyName] = useState('');
+  const [teacherCode, setTeacherCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
 
-  const canNext = name.trim().length > 0;
+  const isStudent = role === 'student';
+  const isTeacher = role === 'teacher';
+  const normalizedPhone = phoneNumber.replace(/\D/g, '');
+  const canNext = (
+    name.trim().length > 0 &&
+    region.trim().length > 0 &&
+    normalizedPhone.length >= 10 &&
+    (!isTeacher || academyName.trim().length > 0) &&
+    (!isStudent || teacherCode.trim().length >= 6)
+  );
 
   const handleFinish = async () => {
     if (!canNext) return;
@@ -46,18 +60,34 @@ export default function ProfileScreen() {
         password:    password ?? '',
         displayName: name.trim(),
         avatar,
-        role:        (role as 'student' | 'teacher' | 'admin') ?? 'student',
-        grade:       GRADES[grade],
-        academyId:   academyId || undefined,
-        accountType: academyId ? 'b2b' : 'b2c',
+        role:        (role as 'student' | 'teacher') ?? 'student',
+        grade:       isStudent ? GRADES[grade] : undefined,
+        region:      region.trim(),
+        phoneNumber: normalizedPhone,
+        academyName: isTeacher ? academyName.trim() : undefined,
+        teacherCode: isStudent ? teacherCode.trim().toUpperCase() : undefined,
+        accountType: 'b2b',
+        authMethod: authMethod ?? 'password',
       });
-      router.replace('/student-home' as any);
+      if (authMethod === 'google') {
+        router.replace(isTeacher ? '/teacher-home' : '/student-home');
+      } else {
+        Alert.alert('이메일 인증 필요', '인증 메일을 보냈어요. 메일함에서 인증을 완료한 뒤 로그인해 주세요.', [
+          { text: '확인', onPress: () => router.replace('/onboarding/splash') },
+        ]);
+      }
     } catch (e: any) {
       console.error('[ProfileScreen] signUp failed:', e.code, e.message);
       const msg =
         e.code === 'auth/email-already-in-use' ? '이미 사용 중인 이메일이에요.' :
+        e.code === 'auth/phone-already-in-use' ? '이미 가입된 휴대폰 번호예요.' :
         e.code === 'auth/weak-password'         ? '비밀번호가 너무 약해요.' :
         e.code === 'auth/invalid-email'         ? '올바른 이메일 형식이 아니에요.' :
+        e.code === 'auth/invalid-phone-number'  ? '휴대폰 번호를 정확히 입력해 주세요.' :
+        e.code === 'auth/academy-name-required' ? '학원 이름을 입력해 주세요.' :
+        e.code === 'auth/email-not-verified'    ? '이메일 인증을 완료한 뒤 다시 로그인해 주세요.' :
+        e.code === 'auth/teacher-code-required' ? '학생 가입에는 선생님 코드가 필요해요.' :
+        e.code === 'auth/teacher-code-not-found' ? '선생님 코드를 찾을 수 없어요. 다시 확인해 주세요.' :
         e.code === 'auth/operation-not-allowed' ? 'Firebase 콘솔에서 이메일/비밀번호 로그인을 활성화해 주세요.' :
         e.code === 'auth/configuration-not-found' ? 'Firebase Auth 설정을 확인해 주세요. 이메일/비밀번호 로그인이 꺼져 있거나 키가 다른 프로젝트일 수 있어요.' :
         e.code === 'firestore/profile-write-timeout' ? 'Firestore Database/API를 활성화한 뒤 다시 시도해 주세요.' :
@@ -76,29 +106,53 @@ export default function ProfileScreen() {
       contentContainerStyle={s.wrap}
       keyboardShouldPersistTaps="handled"
     >
-      <Pressable style={s.backBtn} onPress={() => router.back()}>
-        <Text style={{ fontSize: 18, color: Colors.ink3 }}>←</Text>
-      </Pressable>
+        <Pressable style={s.backBtn} onPress={() => router.back()}>
+          <Text style={{ fontSize: 18, color: Colors.ink3 }}>←</Text>
+        </Pressable>
 
-      <View style={s.dots}>
-        {[false, false, false, true].map((a, i) => (
-          <View key={i} style={[s.dot, a && s.dotActive]} />
-        ))}
-      </View>
+        <View style={s.dots}>
+        {[false, false, true].map((a, i) => (
+            <View key={i} style={[s.dot, a && s.dotActive]} />
+          ))}
+        </View>
 
-      <Text style={[Typography.label2, { color: Colors.ink3, marginBottom: 6 }]}>Step 4 / 4</Text>
+      <Text style={[Typography.label2, { color: Colors.ink3, marginBottom: 6 }]}>Step 3 / 3</Text>
       <Text style={[Typography.h1, { marginBottom: 6 }]}>프로필을{'\n'}만들어 봐요</Text>
       <Text style={[Typography.body2, { color: Colors.ink3, marginBottom: 24, lineHeight: 24 }]}>
-        AI 코치가 딱 맞게 도와줄 수{'\n'}있도록 알려주세요.
+        {isTeacher
+          ? '가입이 완료되면 선생님 코드가 자동으로 생성돼요.'
+          : '선생님 코드를 입력하면 담당 선생님과 자동 연결돼요.'}
       </Text>
 
-      {/* 학원 정보 표시 */}
-      {academyName ? (
-        <View style={s.academyBadge}>
+      {!!(email || authMethod === 'google') && (
+        <View style={s.infoBadge}>
           <Text style={{fontSize:14}}>●</Text>
-          <Text style={[Typography.bold3, { color: Colors.greenDk }]}>{academyName}</Text>
+          <Text style={[Typography.bold3, { color: Colors.greenDk }]}>
+            {authMethod === 'google' ? 'Google 계정으로 인증됨' : email}
+          </Text>
         </View>
-      ) : null}
+      )}
+
+      <Text style={s.sectionLabel}>지역</Text>
+      <TextInput
+        style={[s.input, region.length > 0 && { borderColor: Colors.brand }]}
+        value={region}
+        onChangeText={v => { setRegion(v); setError(''); }}
+        placeholder="예: 서울 강남구"
+        placeholderTextColor={Colors.ink3}
+        maxLength={20}
+      />
+
+      <Text style={s.sectionLabel}>휴대폰 번호</Text>
+      <TextInput
+        style={[s.input, phoneNumber.length > 0 && { borderColor: Colors.brand }]}
+        value={phoneNumber}
+        onChangeText={v => { setPhoneNumber(v); setError(''); }}
+        placeholder="01012345678"
+        placeholderTextColor={Colors.ink3}
+        keyboardType="phone-pad"
+        maxLength={13}
+      />
 
       {/* 아바타 */}
       <Text style={s.sectionLabel}>아바타</Text>
@@ -126,7 +180,7 @@ export default function ProfileScreen() {
       />
 
       {/* 학년 — 학생만 표시 */}
-      {role === 'student' && (
+      {isStudent && (
         <>
           <Text style={s.sectionLabel}>학년</Text>
           <View style={s.gradeGrid}>
@@ -139,6 +193,40 @@ export default function ProfileScreen() {
                 <Text style={[Typography.bold2, { color: grade === i ? '#fff' : Colors.ink3 }]}>{g}</Text>
               </Pressable>
             ))}
+          </View>
+        </>
+      )}
+
+      {isStudent ? (
+        <>
+          <Text style={s.sectionLabel}>선생님 코드</Text>
+          <TextInput
+            style={[s.input, teacherCode.length > 0 && { borderColor: Colors.brand }]}
+            value={teacherCode}
+            onChangeText={v => { setTeacherCode(v.toUpperCase().replace(/[^A-Z0-9]/g, '')); setError(''); }}
+            placeholder="예: AB12CD"
+            placeholderTextColor={Colors.ink3}
+            autoCapitalize="characters"
+            maxLength={6}
+          />
+        </>
+      ) : (
+        <>
+          <Text style={s.sectionLabel}>학원 이름</Text>
+          <TextInput
+            style={[s.input, academyName.length > 0 && { borderColor: Colors.brand }]}
+            value={academyName}
+            onChangeText={v => { setAcademyName(v); setError(''); }}
+            placeholder="예: 새빛영어학원"
+            placeholderTextColor={Colors.ink3}
+            maxLength={24}
+          />
+
+          <View style={s.codePreview}>
+            <Text style={[Typography.bold3, { color: Colors.brand, marginBottom: 4 }]}>선생님 코드 자동 생성</Text>
+            <Text style={[Typography.label2, { color: Colors.ink3, lineHeight: 18 }]}>
+              회원가입이 완료되면 학생들이 입력할 6자리 선생님 코드가 자동으로 발급됩니다.
+            </Text>
           </View>
         </>
       )}
@@ -177,13 +265,14 @@ const s = StyleSheet.create({
   dots:         { flexDirection: 'row', gap: 6, marginBottom: 14 },
   dot:          { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.line },
   dotActive:    { width: 20, borderRadius: 3, backgroundColor: Colors.brand },
-  academyBadge: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: Colors.greenBg, borderWidth: 1, borderColor: '#86efac', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 8, marginBottom: 16, alignSelf: 'flex-start' },
+  infoBadge:    { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: Colors.greenBg, borderWidth: 1, borderColor: '#86efac', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 8, marginBottom: 16, alignSelf: 'flex-start' },
   sectionLabel: { ...Typography.label2, color: Colors.ink3, marginBottom: 10, marginTop: 4 },
   avatarGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   avaBtn:       { width: 60, height: 60, borderRadius: 18, backgroundColor: Colors.bg, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   input:        { backgroundColor: Colors.bg, borderWidth: 1.5, borderColor: Colors.line, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontFamily: 'Pretendard-SemiBold', fontSize: 16, color: Colors.ink, marginBottom: 20 },
   gradeGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginBottom: 20 },
   gradeBtn:     { flex: 1, minWidth: '28%', paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.line, alignItems: 'center' },
+  codePreview:  { backgroundColor: Colors.brandBg, borderRadius: 16, padding: 14, marginBottom: 18, borderWidth: 1, borderColor: '#DDD9FF' },
   coachPreview: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.brandBg, borderRadius: 16, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: '#DDD9FF' },
   doneBtn:      { borderRadius: 16, backgroundColor: Colors.brand, paddingVertical: 17, alignItems: 'center' },
 });

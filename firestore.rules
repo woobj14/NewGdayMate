@@ -37,7 +37,7 @@ service cloud.firestore {
                     // 관리자는 role 필드 변경 가능
                     || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['role', 'status']));
-      allow delete: if isAdmin();
+      allow delete: if isOwner(uid) || isAdmin();
 
       // 학습 진도 (학생 본인 + 같은 학원 선생님)
       match /progress/{lessonId} {
@@ -113,6 +113,20 @@ service cloud.firestore {
       allow get: if true;
       allow list: if false;
       allow write: if isAdmin();
+    }
+
+    match /teacherCodes/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
+    }
+
+    match /signupPhoneIndex/{phoneKey} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if true;
+      allow update, delete: if isSignedIn();
     }
 
     // ── quizCache 컬렉션 (Gemini 퀴즈 캐시) ──────────────────

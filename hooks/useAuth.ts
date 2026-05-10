@@ -10,13 +10,17 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   signOut as firebaseSignOut,
+  sendEmailVerification,
   sendPasswordResetEmail,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  type User as FirebaseAuthUser,
 } from 'firebase/auth';
-import { getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, increment, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import * as SplashScreen from 'expo-splash-screen';
-import { auth, refs } from '../lib/firebase';
-import { useAppStore, User, Role } from '../stores/useAppStore';
+import { auth, db, refs } from '../lib/firebase';
+import { useAppStore, User, Role, MembershipTier } from '../stores/useAppStore';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,6 +36,12 @@ const LOCAL_ADMIN_UID = 'local-admin';
 const LOCAL_ADMIN_ACADEMY_ID = 'academy-smart1';
 const LOCAL_ADMIN_CLASS_ID = 'class-demo';
 const PROFILE_TIMEOUT_MS = 15000;
+const TEACHER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ONBOARDING_PATHS = new Set([
+  '/onboarding/splash',
+  '/onboarding/role',
+  '/onboarding/profile',
+]);
 
 function isLocalAdminEnabled() {
   return process.env.NODE_ENV !== 'production';
@@ -54,11 +64,62 @@ function createLocalAdminUser(role: Role): User {
     displayName: label[role],
     avatar: role === 'admin' ? 'A' : role === 'teacher' ? 'T' : '🦊',
     role,
+    region: '서울',
+    phoneNumber: '010-0000-0000',
+    phoneKey: '01000000000',
     academyId: LOCAL_ADMIN_ACADEMY_ID,
+    academyName: '새빛영어학원',
     classId: LOCAL_ADMIN_CLASS_ID,
     accountType: 'b2b',
+    teacherUid: role === 'student' ? LOCAL_ADMIN_UID : undefined,
+    teacherCode: role === 'teacher' ? 'ADMIN1' : role === 'student' ? 'ADMIN1' : undefined,
+    membershipTier: role === 'teacher' ? 'professional' : role === 'admin' ? 'superb' : undefined,
     ...(role === 'student' || role === 'teacher' ? { grade: '중3' } : {}),
   };
+}
+
+function normalizePhone(input: string) {
+  return input.replace(/\D/g, '');
+}
+
+function formatPhone(input: string) {
+  const digits = normalizePhone(input).slice(0, 11);
+  if (digits.length < 4) return digits;
+  if (digits.length < 8) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function getMembershipTier(role: Role): MembershipTier | undefined {
+  if (role === 'teacher') return 'basic';
+  if (role === 'admin') return 'superb';
+  return undefined;
+}
+
+function getTierLabel(tier?: MembershipTier) {
+  if (tier === 'professional') return '프로페셔널';
+  if (tier === 'superb') return '슈퍼비';
+  if (tier === 'basic') return '베이직';
+  return '';
+}
+
+async function generateTeacherCode() {
+  if (!db) {
+    const error = new Error('Database is not configured.');
+    (error as any).code = 'firestore/configuration-not-found';
+    throw error;
+  }
+
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const code = Array.from({ length: 6 }, () =>
+      TEACHER_CODE_ALPHABET[Math.floor(Math.random() * TEACHER_CODE_ALPHABET.length)]
+    ).join('');
+    const snap = await getDoc(doc(db, 'teacherCodes', code));
+    if (!snap.exists()) return code;
+  }
+
+  const error = new Error('Teacher code generation failed.');
+  (error as any).code = 'teacher/code-generation-failed';
+  throw error;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, code: string): Promise<T> {
@@ -72,6 +133,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, code: string): Promise<
   });
 
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function isOnboardingPath(pathname?: string | null) {
+  return pathname ? ONBOARDING_PATHS.has(pathname) : false;
+}
+
+function isPasswordProviderUser(firebaseUser: FirebaseAuthUser | null) {
+  return firebaseUser?.providerData.some((provider) => provider.providerId === 'password') ?? false;
 }
 
 export function useAuth(options: { route?: boolean } = {}) {
@@ -104,6 +173,12 @@ export function useAuth(options: { route?: boolean } = {}) {
         setLoading(false);
         return;
       }
+      if (!firebaseUser.emailVerified && isPasswordProviderUser(firebaseUser)) {
+        await firebaseSignOut(auth).catch(() => {});
+        setUser(null);
+        setLoading(false);
+        return;
+      }
       try {
         const snap = await withTimeout(
           getDoc(refs.users(firebaseUser.uid)),
@@ -114,6 +189,15 @@ export function useAuth(options: { route?: boolean } = {}) {
           setUser(snap.data() as User);
         } else {
           setUser(null);
+          if (!isOnboardingPath(pathname)) {
+            router.replace({
+              pathname: '/onboarding/role',
+              params: {
+                email: firebaseUser.email ?? '',
+                authMethod: 'google',
+              },
+            });
+          }
         }
       } catch {
         setUser(null);
@@ -135,7 +219,7 @@ export function useAuth(options: { route?: boolean } = {}) {
     SplashScreen.hideAsync().catch(() => {});
 
     if (!user) {
-      if (pathname !== '/onboarding/splash') {
+      if (!isOnboardingPath(pathname)) {
         router.replace('/onboarding/splash');
       }
       return;
@@ -158,6 +242,12 @@ export function useAuth(options: { route?: boolean } = {}) {
     }
 
     const cred = await signInWithEmailAndPassword(auth, email, password);
+    if (!cred.user.emailVerified) {
+      await firebaseSignOut(auth).catch(() => {});
+      const error = new Error('Email verification is required.');
+      (error as any).code = 'auth/email-not-verified';
+      throw error;
+    }
     try {
       const snap = await withTimeout(
         getDoc(refs.users(cred.user.uid)),
@@ -179,44 +269,237 @@ export function useAuth(options: { route?: boolean } = {}) {
     }
   }
 
-  async function signUp(params: {
-    email: string; password: string;
-    displayName: string; avatar: string;
-    role: Role; grade?: string;
-    academyId?: string; classId?: string;
-    accountType: 'b2c' | 'b2b';
-  }) {
+  async function signInWithGoogle() {
     if (!auth) {
       const error = new Error('Firebase Auth is not configured.');
       (error as any).code = 'auth/configuration-not-found';
       throw error;
     }
+    if (typeof window === 'undefined') {
+      const error = new Error('Google sign-in is not supported in this environment.');
+      (error as any).code = 'auth/operation-not-supported-in-this-environment';
+      throw error;
+    }
 
-    const cred = await createUserWithEmailAndPassword(auth, params.email, params.password);
-    const safeRole: Role = 'student';
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    const cred = await signInWithPopup(auth, provider);
+    try {
+      const snap = await withTimeout(
+        getDoc(refs.users(cred.user.uid)),
+        PROFILE_TIMEOUT_MS,
+        'firestore/profile-read-timeout'
+      );
+      if (!snap.exists()) {
+        setUser(null);
+        router.replace({
+          pathname: '/onboarding/role',
+          params: {
+            email: cred.user.email ?? '',
+            authMethod: 'google',
+          },
+        });
+        return;
+      }
+
+      const profile = snap.data() as User;
+      setUser(profile);
+      router.replace(ROLE_ROUTES[profile.role] as any);
+    } catch (error) {
+      await firebaseSignOut(auth).catch(() => {});
+      setUser(null);
+      throw error;
+    }
+  }
+
+  async function signUp(params: {
+    email: string; password?: string;
+    displayName: string; avatar: string;
+    role: Role; grade?: string;
+    region: string;
+    phoneNumber: string;
+    academyName?: string;
+    teacherCode?: string;
+    accountType: 'b2c' | 'b2b';
+    authMethod?: 'password' | 'google';
+  }): Promise<{ requiresEmailVerification: boolean }> {
+    if (!auth) {
+      const error = new Error('Firebase Auth is not configured.');
+      (error as any).code = 'auth/configuration-not-found';
+      throw error;
+    }
+    if (!db) {
+      const error = new Error('Database is not configured.');
+      (error as any).code = 'firestore/configuration-not-found';
+      throw error;
+    }
+
+    const phoneKey = normalizePhone(params.phoneNumber);
+    if (phoneKey.length < 10) {
+      const error = new Error('Phone number is invalid.');
+      (error as any).code = 'auth/invalid-phone-number';
+      throw error;
+    }
+
+    const phoneSnap = await getDoc(doc(db, 'signupPhoneIndex', phoneKey));
+    if (phoneSnap.exists()) {
+      const error = new Error('Phone number is already in use.');
+      (error as any).code = 'auth/phone-already-in-use';
+      throw error;
+    }
+
+    let teacherLink: Record<string, any> | null = null;
+    if (params.role === 'student') {
+      const inputCode = (params.teacherCode ?? '').trim().toUpperCase();
+      if (!inputCode) {
+        const error = new Error('Teacher code is required.');
+        (error as any).code = 'auth/teacher-code-required';
+        throw error;
+      }
+      const teacherSnap = await getDoc(doc(db, 'teacherCodes', inputCode));
+      if (!teacherSnap.exists()) {
+        const error = new Error('Teacher code was not found.');
+        (error as any).code = 'auth/teacher-code-not-found';
+        throw error;
+      }
+      teacherLink = teacherSnap.data();
+    } else if (!(params.academyName ?? '').trim()) {
+      const error = new Error('Academy name is required.');
+      (error as any).code = 'auth/academy-name-required';
+      throw error;
+    }
+
+    const authMethod = params.authMethod ?? 'password';
+    const firebaseUser = authMethod === 'google'
+      ? auth.currentUser
+      : (await createUserWithEmailAndPassword(auth, params.email, params.password ?? '')).user;
+
+    if (!firebaseUser) {
+      const error = new Error('Authenticated user was not found.');
+      (error as any).code = 'auth/current-user-not-found';
+      throw error;
+    }
+
+    const nextRole: Role = params.role === 'teacher' ? 'teacher' : 'student';
+    const teacherCode = nextRole === 'teacher' ? await generateTeacherCode() : (params.teacherCode ?? '').trim().toUpperCase();
+    const academyId = nextRole === 'teacher'
+      ? `academy-${teacherCode.toLowerCase()}`
+      : (teacherLink?.academyId as string | undefined);
+    const academyName = nextRole === 'teacher'
+      ? (params.academyName ?? '').trim()
+      : ((teacherLink?.academyName as string | undefined) ?? '');
     const newUser: User = {
-      uid:         cred.user.uid,
-      email:       params.email,
+      uid:         firebaseUser.uid,
+      email:       (params.email || firebaseUser.email || '').trim(),
       displayName: params.displayName,
       avatar:      params.avatar,
-      role:        safeRole,
+      role:        nextRole,
+      region:      params.region.trim(),
+      phoneNumber: formatPhone(params.phoneNumber),
+      phoneKey,
       accountType: params.accountType,
+      membershipTier: getMembershipTier(nextRole),
+      teacherCode,
+      ...(academyId ? { academyId } : {}),
+      ...(academyName ? { academyName } : {}),
+      ...(nextRole === 'student' && teacherLink?.teacherUid ? { teacherUid: teacherLink.teacherUid } : {}),
       ...(params.grade ? { grade: params.grade } : {}),
-      ...(params.academyId ? { academyId: params.academyId } : {}),
-      ...(params.classId ? { classId: params.classId } : {}),
     };
     try {
-      await withTimeout(setDoc(refs.users(cred.user.uid), {
+      const batch = writeBatch(db);
+      batch.set(refs.users(firebaseUser.uid), {
         ...newUser,
         xp: 0, streak: 0, level: 1,
         selectedCoach: 'betty',
         createdAt: serverTimestamp(),
-      }), PROFILE_TIMEOUT_MS, 'firestore/profile-write-timeout');
+      });
+      batch.set(doc(db, 'signupPhoneIndex', phoneKey), {
+        uid: firebaseUser.uid,
+        phoneNumber: formatPhone(params.phoneNumber),
+        phoneKey,
+        role: nextRole,
+        createdAt: serverTimestamp(),
+      });
+      if (nextRole === 'teacher') {
+        batch.set(doc(db, 'teacherCodes', teacherCode), {
+          teacherUid: firebaseUser.uid,
+          teacherName: params.displayName,
+          teacherCode,
+          academyId,
+          academyName,
+          region: params.region.trim(),
+          studentCount: 0,
+          membershipTier: getTierLabel('basic'),
+          active: true,
+          createdAt: serverTimestamp(),
+        });
+      } else if (teacherLink) {
+        batch.update(doc(db, 'teacherCodes', teacherCode), {
+          studentCount: increment(1),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await withTimeout(batch.commit(), PROFILE_TIMEOUT_MS, 'firestore/profile-write-timeout');
     } catch (error) {
-      await deleteUser(cred.user).catch(() => {});
+      if (authMethod === 'password') {
+        await deleteUser(firebaseUser).catch(() => {});
+      } else {
+        await firebaseSignOut(auth).catch(() => {});
+      }
       throw error;
     }
+    if (authMethod === 'password') {
+      await sendEmailVerification(firebaseUser);
+      await firebaseSignOut(auth).catch(() => {});
+      setUser(null);
+      return { requiresEmailVerification: true };
+    }
+
     setUser(newUser);
+    return { requiresEmailVerification: false };
+  }
+
+  async function updateAccount(params: {
+    displayName?: string;
+    avatar?: string;
+    region?: string;
+    grade?: string;
+    academyName?: string;
+  }) {
+    const current = useAppStore.getState().user;
+    if (!current) return;
+    if (isLocalAdminUser(current)) {
+      setUser({ ...current, ...params });
+      return;
+    }
+    if (!db) {
+      const error = new Error('Database is not configured.');
+      (error as any).code = 'firestore/configuration-not-found';
+      throw error;
+    }
+
+    const nextUser = { ...current, ...params };
+    await updateDoc(refs.users(current.uid), {
+      ...(params.displayName ? { displayName: params.displayName.trim() } : {}),
+      ...(params.avatar ? { avatar: params.avatar } : {}),
+      ...(params.region ? { region: params.region.trim() } : {}),
+      ...(params.grade ? { grade: params.grade } : {}),
+      ...(params.academyName ? { academyName: params.academyName.trim() } : {}),
+      updatedAt: serverTimestamp(),
+    });
+
+    if (current.role === 'teacher' && current.teacherCode) {
+      await updateDoc(doc(db, 'teacherCodes', current.teacherCode), {
+        ...(params.displayName ? { teacherName: params.displayName.trim() } : {}),
+        ...(params.region ? { region: params.region.trim() } : {}),
+        ...(params.academyName ? { academyName: params.academyName.trim() } : {}),
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
+    }
+
+    setUser(nextUser);
   }
 
   function switchLocalAdminMode(role: Role) {
@@ -249,5 +532,56 @@ export function useAuth(options: { route?: boolean } = {}) {
     await sendPasswordResetEmail(auth, email);
   }
 
-  return { user, isLoading, signIn, signUp, signOut, resetPassword, switchLocalAdminMode, isLocalAdminSession };
+  async function resendVerificationEmail() {
+    if (!auth?.currentUser) {
+      const error = new Error('Authenticated user was not found.');
+      (error as any).code = 'auth/current-user-not-found';
+      throw error;
+    }
+    await sendEmailVerification(auth.currentUser);
+  }
+
+  async function deleteAccount() {
+    const current = useAppStore.getState().user;
+    if (!current) return;
+
+    if (isLocalAdminUser(current)) {
+      setUser(null);
+      router.replace('/onboarding/splash');
+      return;
+    }
+
+    if (!auth?.currentUser || !db) {
+      const error = new Error('Account is not configured.');
+      (error as any).code = 'auth/configuration-not-found';
+      throw error;
+    }
+
+    const authUser = auth.currentUser;
+    await deleteUser(authUser);
+    await deleteDoc(refs.users(current.uid)).catch(() => {});
+    if (current.phoneKey) {
+      await deleteDoc(doc(db, 'signupPhoneIndex', current.phoneKey)).catch(() => {});
+    }
+    if (current.role === 'teacher' && current.teacherCode) {
+      await deleteDoc(doc(db, 'teacherCodes', current.teacherCode)).catch(() => {});
+    }
+    setUser(null);
+    router.replace('/onboarding/splash');
+  }
+
+  return {
+    user,
+    isLoading,
+    signIn,
+    signInWithGoogle,
+    signUp,
+    signOut,
+    resetPassword,
+    resendVerificationEmail,
+    updateAccount,
+    deleteAccount,
+    switchLocalAdminMode,
+    isLocalAdminSession,
+  };
 }

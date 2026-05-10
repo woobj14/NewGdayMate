@@ -153,9 +153,9 @@ export default function TeacherDashboard() {
             </Text>
             <Text style={[Typography.h2]}>오늘 한눈에</Text>
           </View>
-          <View style={s.teacherAva}>
+          <Pressable style={s.teacherAva} onPress={() => router.push('/(teacher)/profile' as any)}>
             <Text style={[Typography.h3, { color: '#fff' }]}>李</Text>
-          </View>
+          </Pressable>
         </View>
       </View>
 

@@ -3,48 +3,50 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../../../stores/useAppStore';
 import { useAuth } from '../../../hooks/useAuth';
-import { useWordbook } from '../../../hooks/useWordbook';
 import { Colors } from '../../../constants/colors';
 import { Typography } from '../../../constants/typography';
 
 const AVATARS = ['🦊','🐯','🐻','🐰','🦁','🐧','🦉','🐸'];
-const GRADES  = ['중1','중2','중3','고1','고2','고3'];
+const TIER_LABEL: Record<string, string> = {
+  basic: '베이직',
+  professional: '프로페셔널',
+  superb: '슈퍼비',
+};
 
-export default function ProfileScreen() {
+export default function TeacherProfileScreen() {
   const router = useRouter();
-  const { user, xp, streak, level } = useAppStore();
-  const { words } = useWordbook();
+  const { user } = useAppStore();
   const { signOut, updateAccount, resetPassword, deleteAccount } = useAuth();
 
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [region, setRegion] = useState(user?.region ?? '');
+  const [academyName, setAcademyName] = useState(user?.academyName ?? '');
   const [avatar, setAvatar] = useState(user?.avatar ?? '🦊');
-  const [grade, setGrade] = useState(user?.grade ?? '중3');
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const xpInLevel = xp % 400;
-  const levelPct = Math.round((xpInLevel / 400) * 100);
-  const accountSummary = useMemo(() => [
+  const summary = useMemo(() => [
+    { label: '등급', value: TIER_LABEL[user?.membershipTier ?? 'basic'] ?? '베이직' },
+    { label: '선생님 코드', value: user?.teacherCode ?? '자동 생성 대기' },
     { label: '학원 이름', value: user?.academyName ?? '-' },
     { label: '이메일', value: user?.email ?? '-' },
     { label: '휴대폰', value: user?.phoneNumber ?? '-' },
     { label: '지역', value: user?.region ?? '-' },
-  ], [user?.academyName, user?.email, user?.phoneNumber, user?.region]);
+  ], [user]);
 
   const handleSave = async () => {
-    setLoading(true);
+    setSaving(true);
     try {
-      await updateAccount({ displayName: displayName.trim(), region: region.trim(), avatar, grade });
+      await updateAccount({ displayName: displayName.trim(), region: region.trim(), academyName: academyName.trim(), avatar });
       setEditing(false);
     } catch (error: any) {
       Alert.alert('저장 실패', error?.message ?? '회원정보를 저장하지 못했어요.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  const handlePasswordReset = async () => {
+  const handleResetPassword = async () => {
     if (!user?.email) return;
     try {
       await resetPassword(user.email);
@@ -54,8 +56,8 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleDeleteAccount = () => {
-    Alert.alert('회원탈퇴', '정말 탈퇴할까요? 가입 정보와 진행 기록이 삭제될 수 있어요.', [
+  const handleDelete = () => {
+    Alert.alert('회원탈퇴', '정말 탈퇴할까요? 선생님 코드와 연결 정보도 함께 정리돼요.', [
       { text: '취소', style: 'cancel' },
       {
         text: '탈퇴',
@@ -78,48 +80,23 @@ export default function ProfileScreen() {
           <Pressable style={s.backBtn} onPress={() => router.back()}>
             <Text style={{ color: '#fff', fontSize: 18 }}>←</Text>
           </Pressable>
-          <Pressable style={s.editBtn} onPress={() => (editing ? handleSave() : setEditing(true))} disabled={loading}>
-            <Text style={[Typography.label1, { color: '#fff' }]}>{editing ? (loading ? '저장 중' : '저장') : '편집'}</Text>
+          <Pressable style={s.editBtn} onPress={() => (editing ? handleSave() : setEditing(true))} disabled={saving}>
+            <Text style={[Typography.label1, { color: '#fff' }]}>{editing ? (saving ? '저장 중' : '저장') : '편집'}</Text>
           </Pressable>
         </View>
-
         <View style={s.avatar}>
           <Text style={{ fontSize: 32 }}>{avatar}</Text>
         </View>
-        <Text style={[Typography.h3, { color: '#fff', marginTop: 14 }]}>{user?.displayName ?? '학생'}</Text>
+        <Text style={[Typography.h3, { color: '#fff', marginTop: 14 }]}>{user?.displayName ?? '선생님'}</Text>
         <Text style={[Typography.body3, { color: 'rgba(255,255,255,0.72)', marginTop: 4 }]}>
-          {user?.grade ?? '중3'} · {user?.region ?? '지역 미설정'}
+          {TIER_LABEL[user?.membershipTier ?? 'basic'] ?? '베이직'} 플랜
         </Text>
-        <View style={s.heroBadge}>
-          <Text style={[Typography.label2, { color: '#fff' }]}>학생 계정</Text>
+        <View style={s.codeChip}>
+          <Text style={[Typography.bold3, { color: '#fff' }]}>선생님 코드 {user?.teacherCode ?? '-'}</Text>
         </View>
-      </View>
-
-      <View style={s.statsStrip}>
-        {[
-          { val: `${streak}`, lbl: '연속' },
-          { val: `${words.length}`, lbl: '단어장' },
-          { val: `Lv.${level}`, lbl: '레벨' },
-          { val: `${xp}`, lbl: 'XP' },
-        ].map((item, i) => (
-          <View key={item.lbl} style={[s.statCell, i < 3 && { borderRightWidth: 0.5, borderRightColor: Colors.line }]}>
-            <Text style={[Typography.statSm, { color: Colors.ink }]}>{item.val}</Text>
-            <Text style={[Typography.label2, { color: Colors.ink3, marginTop: 2 }]}>{item.lbl}</Text>
-          </View>
-        ))}
       </View>
 
       <View style={s.content}>
-        <View style={s.card}>
-          <Text style={[Typography.bold2, { marginBottom: 10 }]}>레벨 진행도</Text>
-          <View style={s.barTrack}>
-            <View style={[s.barFill, { width: `${levelPct}%` as any }]} />
-          </View>
-          <Text style={[Typography.label2, { color: Colors.brand, marginTop: 6 }]}>
-            다음 레벨까지 {400 - xpInLevel} XP
-          </Text>
-        </View>
-
         {editing && (
           <View style={s.card}>
             <Text style={[Typography.bold2, { marginBottom: 10 }]}>회원정보 수정</Text>
@@ -129,14 +106,8 @@ export default function ProfileScreen() {
             <Text style={s.label}>지역</Text>
             <TextInput style={s.input} value={region} onChangeText={setRegion} placeholder="예: 서울 강남구" placeholderTextColor={Colors.ink3} />
 
-            <Text style={s.label}>학년</Text>
-            <View style={s.gradeGrid}>
-              {GRADES.map(item => (
-                <Pressable key={item} style={[s.gradeBtn, grade === item && s.gradeBtnActive]} onPress={() => setGrade(item)}>
-                  <Text style={[Typography.label2, { color: grade === item ? '#fff' : Colors.ink3 }]}>{item}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Text style={s.label}>학원 이름</Text>
+            <TextInput style={s.input} value={academyName} onChangeText={setAcademyName} placeholder="예: 새빛영어학원" placeholderTextColor={Colors.ink3} />
 
             <Text style={s.label}>아바타</Text>
             <View style={s.avatarGrid}>
@@ -151,7 +122,7 @@ export default function ProfileScreen() {
 
         <View style={s.card}>
           <Text style={[Typography.bold2, { marginBottom: 10 }]}>회원 정보</Text>
-          {accountSummary.map(item => (
+          {summary.map(item => (
             <View key={item.label} style={s.infoRow}>
               <Text style={[Typography.label2, { color: Colors.ink3 }]}>{item.label}</Text>
               <Text style={[Typography.bold3, { color: Colors.ink }]}>{item.value}</Text>
@@ -159,13 +130,20 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        <Pressable style={s.actionBtn} onPress={handlePasswordReset}>
+        <View style={s.planCard}>
+          <Text style={[Typography.bold2, { color: Colors.ink, marginBottom: 6 }]}>선생님 요금제</Text>
+          <Text style={[Typography.body3, { color: Colors.ink3, lineHeight: 20 }]}>
+            현재는 {TIER_LABEL[user?.membershipTier ?? 'basic']} 플랜으로 등록되어 있어요. 추후 학생 수 기준 결제 정책과 연동할 수 있게 구조를 열어두었습니다.
+          </Text>
+        </View>
+
+        <Pressable style={s.actionBtn} onPress={handleResetPassword}>
           <Text style={[Typography.bold3, { color: Colors.brand }]}>비밀번호 변경 메일 보내기</Text>
         </Pressable>
         <Pressable style={s.actionBtn} onPress={signOut}>
           <Text style={[Typography.bold3, { color: Colors.ink }]}>로그아웃</Text>
         </Pressable>
-        <Pressable style={[s.actionBtn, s.deleteBtn]} onPress={handleDeleteAccount}>
+        <Pressable style={[s.actionBtn, s.deleteBtn]} onPress={handleDelete}>
           <Text style={[Typography.bold3, { color: Colors.red }]}>회원탈퇴</Text>
         </Pressable>
       </View>
@@ -175,27 +153,21 @@ export default function ProfileScreen() {
 
 const s = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: Colors.bg },
-  hero: { backgroundColor: Colors.brand, paddingTop: 52, paddingHorizontal: 22, paddingBottom: 22 },
+  hero: { backgroundColor: Colors.orange, paddingTop: 52, paddingHorizontal: 22, paddingBottom: 22 },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   backBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' },
   editBtn: { borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', paddingHorizontal: 14, paddingVertical: 8 },
   avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginTop: 16 },
-  heroBadge: { marginTop: 12, alignSelf: 'flex-start', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: 'rgba(255,255,255,0.18)' },
-  statsStrip: { flexDirection: 'row', backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.line },
-  statCell: { flex: 1, paddingVertical: 13, alignItems: 'center' },
+  codeChip: { marginTop: 12, alignSelf: 'flex-start', borderRadius: 99, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.18)' },
   content: { paddingHorizontal: 18, paddingTop: 16, gap: 14 },
   card: { backgroundColor: Colors.white, borderRadius: 18, borderWidth: 1, borderColor: Colors.line, padding: 15 },
-  barTrack: { height: 7, backgroundColor: Colors.line, borderRadius: 99, overflow: 'hidden' },
-  barFill: { height: '100%', backgroundColor: Colors.brand, borderRadius: 99 },
+  planCard: { backgroundColor: Colors.orangeBg, borderRadius: 18, borderWidth: 1, borderColor: '#FDBA74', padding: 15 },
   label: { ...Typography.label2, color: Colors.ink3, marginBottom: 8, marginTop: 2 },
   input: { backgroundColor: Colors.bg, borderWidth: 1.5, borderColor: Colors.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: Colors.ink, marginBottom: 14 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
-  gradeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
-  gradeBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.line, backgroundColor: Colors.white },
-  gradeBtnActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
   avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   avatarBtn: { width: 56, height: 56, borderRadius: 18, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
-  avatarBtnActive: { borderColor: Colors.brand, backgroundColor: Colors.brandBg },
+  avatarBtnActive: { borderColor: Colors.orange, backgroundColor: Colors.orangeBg },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
   actionBtn: { backgroundColor: Colors.white, borderRadius: 16, borderWidth: 1.5, borderColor: Colors.line, paddingVertical: 15, alignItems: 'center' },
   deleteBtn: { borderColor: '#fca5a5', backgroundColor: Colors.redBg, marginBottom: 6 },
 });

@@ -9,7 +9,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
 
-type Role = 'student' | 'teacher' | 'admin';
+type Role = 'student' | 'teacher';
 
 const ROLES = [
   {
@@ -26,26 +26,24 @@ const ROLES = [
     color: Colors.orange,
     bg:    Colors.orangeBg,
   },
-  {
-    key:   'admin' as Role,
-    name:  '관리자',
-    desc:  '콘텐츠 관리 및\n서비스 운영을 담당해요',
-    color: Colors.green,
-    bg:    Colors.greenBg,
-  },
 ];
 
 export default function RoleScreen() {
   const router = useRouter();
-  // 이전 단계에서 전달된 email, password
-  const { email, password } = useLocalSearchParams<{ email: string; password: string }>();
+  const { region, email, password, phoneNumber, authMethod } = useLocalSearchParams<{
+    region?: string;
+    email?: string;
+    password?: string;
+    phoneNumber?: string;
+    authMethod?: 'password' | 'google';
+  }>();
   const [sel, setSel] = useState<Role | null>(null);
 
   const handleNext = () => {
     if (!sel) return;
     router.push({
-      pathname: '/onboarding/academy-code',
-      params:   { email, password, role: sel },
+      pathname: '/onboarding/profile',
+      params:   { region, email, password, phoneNumber, authMethod, role: sel },
     });
   };
 
@@ -56,12 +54,12 @@ export default function RoleScreen() {
       </Pressable>
 
       <View style={s.dots}>
-        {[false, true, false, false].map((a, i) => (
+        {[false, true, false].map((a, i) => (
           <View key={i} style={[s.dot, a && s.dotActive]} />
         ))}
       </View>
 
-      <Text style={[Typography.label2, { color: Colors.ink3, marginBottom: 6 }]}>Step 2 / 4</Text>
+      <Text style={[Typography.label2, { color: Colors.ink3, marginBottom: 6 }]}>Step 2 / 3</Text>
       <Text style={[Typography.h1, { marginBottom: 6 }]}>어떤 역할로{'\n'}시작할까요?</Text>
       <Text style={[Typography.body2, { color: Colors.ink3, marginBottom: 28, lineHeight: 24 }]}>
         역할에 맞는 맞춤 환경을{'\n'}준비해 드릴게요.
@@ -80,9 +78,6 @@ export default function RoleScreen() {
                 <Text style={{fontSize:14}}>●</Text>
               )}
               {r.key === 'teacher' && (
-                <Text style={{fontSize:14}}>●</Text>
-              )}
-              {r.key === 'admin' && (
                 <Text style={{fontSize:14}}>●</Text>
               )}
             </View>

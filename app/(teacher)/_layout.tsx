@@ -38,6 +38,7 @@ export default function TeacherLayout() {
         <Tabs.Screen name="content/[id]"       options={{ href: null }} />
         <Tabs.Screen name="content/supplement" options={{ href: null }} />
         <Tabs.Screen name="curriculum/index"   options={{ href: null }} />
+        <Tabs.Screen name="profile/index"      options={{ href: null }} />
         <Tabs.Screen name="report"             options={{ href: null }} />
         <Tabs.Screen name="speaking-out/index" options={{ href: null }} />
         <Tabs.Screen name="students/[uid]"     options={{ href: null }} />

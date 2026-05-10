@@ -92,9 +92,9 @@ export default function StudentHome() {
               오늘도 화이팅!
             </Text>
           </View>
-          <View style={s.levelBadge}>
+          <Pressable style={s.levelBadge} onPress={() => router.push('/(student)/profile' as any)}>
             <Text style={[Typography.bold3,{color:'#fff',fontSize:11}]}>Lv.{level}</Text>
-          </View>
+          </Pressable>
         </View>
 
         {/* 스탯 칩 */}
