@@ -86,6 +86,14 @@ export function useAuth(options: { route?: boolean } = {}) {
   // Firebase Auth 구독 (최초 마운트 1회)
   useEffect(() => {
     if (!route) return;
+    if (!auth) {
+      routed.current = false;
+      if (!isLocalAdminUser(useAppStore.getState().user)) {
+        setUser(null);
+      }
+      setLoading(false);
+      return;
+    }
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       routed.current = false; // 상태 바뀔 때마다 재라우팅 허용
@@ -143,6 +151,12 @@ export function useAuth(options: { route?: boolean } = {}) {
       return;
     }
 
+    if (!auth) {
+      const error = new Error('Firebase Auth is not configured.');
+      (error as any).code = 'auth/configuration-not-found';
+      throw error;
+    }
+
     const cred = await signInWithEmailAndPassword(auth, email, password);
     try {
       const snap = await withTimeout(
@@ -172,6 +186,12 @@ export function useAuth(options: { route?: boolean } = {}) {
     academyId?: string; classId?: string;
     accountType: 'b2c' | 'b2b';
   }) {
+    if (!auth) {
+      const error = new Error('Firebase Auth is not configured.');
+      (error as any).code = 'auth/configuration-not-found';
+      throw error;
+    }
+
     const cred = await createUserWithEmailAndPassword(auth, params.email, params.password);
     const safeRole: Role = 'student';
     const newUser: User = {
@@ -210,12 +230,22 @@ export function useAuth(options: { route?: boolean } = {}) {
   }
 
   async function signOut() {
+    if (!auth) {
+      setUser(null);
+      router.replace('/onboarding/splash');
+      return;
+    }
     await firebaseSignOut(auth);
     setUser(null);
     router.replace('/onboarding/splash');
   }
 
   async function resetPassword(email: string) {
+    if (!auth) {
+      const error = new Error('Firebase Auth is not configured.');
+      (error as any).code = 'auth/configuration-not-found';
+      throw error;
+    }
     await sendPasswordResetEmail(auth, email);
   }
 
