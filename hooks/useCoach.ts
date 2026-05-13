@@ -33,7 +33,13 @@ export function useCoach() {
         parts: [{ text: m.content }] as [{ text: string }],
       }));
 
-    const studentCtx = `이름: ${user.displayName}, 학년: ${user.grade ?? '중3'}, 레벨: ${user.accountType}`;
+    const studentCtx = [
+      `이름: ${user.displayName}`,
+      `학년: ${user.grade ?? '중3'}`,
+      `계정 유형: ${user.accountType}`,
+      `학습 코스: ${user.scoreBand ?? '80s'}`,
+      `최근 모의고사: ${typeof user.latestMockScore === 'number' ? `${user.latestMockScore}점` : '없음'}`,
+    ].join(', ');
     const wrongCtx   = currentWrong
       ? `문제: ${currentWrong.question}\n내 답: ${currentWrong.myAnswer}\n정답: ${currentWrong.correctAnswer}\n지문: ${currentWrong.passageSnippet}`
       : '';

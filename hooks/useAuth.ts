@@ -20,7 +20,7 @@ import {
 import { deleteDoc, doc, getDoc, increment, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import * as SplashScreen from 'expo-splash-screen';
 import { auth, db, refs } from '../lib/firebase';
-import { useAppStore, User, Role, MembershipTier } from '../stores/useAppStore';
+import { useAppStore, User, Role, MembershipTier, ScoreBand } from '../stores/useAppStore';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -71,6 +71,9 @@ function createLocalAdminUser(role: Role): User {
     academyName: '새빛영어학원',
     classId: LOCAL_ADMIN_CLASS_ID,
     accountType: 'b2b',
+    scoreBand: role === 'student' ? '80s' : undefined,
+    latestMockScore: role === 'student' ? 84 : undefined,
+    latestMockTakenAt: role === 'student' ? new Date().toISOString() : undefined,
     teacherUid: role === 'student' ? LOCAL_ADMIN_UID : undefined,
     teacherCode: role === 'teacher' ? 'ADMIN1' : role === 'student' ? 'ADMIN1' : undefined,
     membershipTier: role === 'teacher' ? 'professional' : role === 'admin' ? 'superb' : undefined,
@@ -143,6 +146,10 @@ function isPasswordProviderUser(firebaseUser: FirebaseAuthUser | null) {
   return firebaseUser?.providerData.some((provider) => provider.providerId === 'password') ?? false;
 }
 
+function canSkipEmailVerification(profile: User | null) {
+  return profile?.role === 'admin';
+}
+
 export function useAuth(options: { route?: boolean } = {}) {
   const { route = false } = options;
   const router  = useRouter();
@@ -173,12 +180,6 @@ export function useAuth(options: { route?: boolean } = {}) {
         setLoading(false);
         return;
       }
-      if (!firebaseUser.emailVerified && isPasswordProviderUser(firebaseUser)) {
-        await firebaseSignOut(auth).catch(() => {});
-        setUser(null);
-        setLoading(false);
-        return;
-      }
       try {
         const snap = await withTimeout(
           getDoc(refs.users(firebaseUser.uid)),
@@ -186,7 +187,14 @@ export function useAuth(options: { route?: boolean } = {}) {
           'firestore/profile-read-timeout'
         );
         if (snap.exists()) {
-          setUser(snap.data() as User);
+          const profile = snap.data() as User;
+          if (!firebaseUser.emailVerified && isPasswordProviderUser(firebaseUser) && !canSkipEmailVerification(profile)) {
+            await firebaseSignOut(auth).catch(() => {});
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+          setUser(profile);
         } else {
           setUser(null);
           if (!isOnboardingPath(pathname)) {
@@ -242,12 +250,6 @@ export function useAuth(options: { route?: boolean } = {}) {
     }
 
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    if (!cred.user.emailVerified) {
-      await firebaseSignOut(auth).catch(() => {});
-      const error = new Error('Email verification is required.');
-      (error as any).code = 'auth/email-not-verified';
-      throw error;
-    }
     try {
       const snap = await withTimeout(
         getDoc(refs.users(cred.user.uid)),
@@ -260,6 +262,12 @@ export function useAuth(options: { route?: boolean } = {}) {
         throw error;
       }
       const profile = snap.data() as User;
+      if (!cred.user.emailVerified && !canSkipEmailVerification(profile)) {
+        await firebaseSignOut(auth).catch(() => {});
+        const error = new Error('Email verification is required.');
+        (error as any).code = 'auth/email-not-verified';
+        throw error;
+      }
       setUser(profile);
       router.replace(ROLE_ROUTES[profile.role] as any);
     } catch (error) {
@@ -403,6 +411,7 @@ export function useAuth(options: { route?: boolean } = {}) {
       teacherCode,
       ...(academyId ? { academyId } : {}),
       ...(academyName ? { academyName } : {}),
+      ...(nextRole === 'student' ? { scoreBand: '80s' as ScoreBand } : {}),
       ...(nextRole === 'student' && teacherLink?.teacherUid ? { teacherUid: teacherLink.teacherUid } : {}),
       ...(params.grade ? { grade: params.grade } : {}),
     };
@@ -467,6 +476,7 @@ export function useAuth(options: { route?: boolean } = {}) {
     region?: string;
     grade?: string;
     academyName?: string;
+    scoreBand?: ScoreBand;
   }) {
     const current = useAppStore.getState().user;
     if (!current) return;
@@ -487,6 +497,7 @@ export function useAuth(options: { route?: boolean } = {}) {
       ...(params.region ? { region: params.region.trim() } : {}),
       ...(params.grade ? { grade: params.grade } : {}),
       ...(params.academyName ? { academyName: params.academyName.trim() } : {}),
+      ...(params.scoreBand ? { scoreBand: params.scoreBand } : {}),
       updatedAt: serverTimestamp(),
     });
 

@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, ScrollView, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useWrongNote, WrongNote } from '../../../hooks/useWrongNote';
+import { useWrongNote, WrongNote, WRONG_REASON_LABEL } from '../../../hooks/useWrongNote';
 import { generateVerifyQuestion, VerifyQuestion } from '../../../lib/gemini';
 import { Colors } from '../../../constants/colors';
 import { Typography } from '../../../constants/typography';
@@ -21,7 +21,7 @@ const TC: Record<string, { bg:string; text:string; label:string }> = {
 
 export default function WrongNotesScreen() {
   const router = useRouter();
-  const { notes, loading, streaming, unresolvedCount, generateExplain, resolveNote } = useWrongNote();
+  const { notes, loading, streaming, unresolvedCount, wrongReasonCounts, topWrongReason, generateExplain, resolveNote } = useWrongNote();
   const [filter,   setFilter]   = useState<Filter>('all');
   const [typeFil,  setTypeFil]  = useState<TypeFilter>('all');
   const [selected, setSelected] = useState<WrongNote | null>(null);
@@ -52,6 +52,14 @@ export default function WrongNotesScreen() {
           틀린 문제 복습
           {unresolvedCount>0 && <Text style={{ color:Colors.red }}> {unresolvedCount}</Text>}
         </Text>
+        {topWrongReason && (
+          <View style={s.reasonBanner}>
+            <Text style={[Typography.label2, { color: Colors.brand, marginBottom: 3 }]}>최근 가장 자주 막힌 부분</Text>
+            <Text style={[Typography.bold3, { color: Colors.ink }]}>
+              {WRONG_REASON_LABEL[topWrongReason]} {wrongReasonCounts[topWrongReason]}회
+            </Text>
+          </View>
+        )}
         <View style={s.filterRow}>
           {(['all','unresolved','resolved'] as Filter[]).map(f => (
             <Pressable key={f} onPress={()=>setFilter(f)}
@@ -97,6 +105,11 @@ export default function WrongNotesScreen() {
                 <Text style={[Typography.label3, { color:Colors.ink3, marginLeft:'auto' }]}>
                   {n.savedAt.toLocaleDateString('ko-KR')}
                 </Text>
+              </View>
+              <View style={s.reasonRow}>
+                <View style={s.reasonChip}>
+                  <Text style={[Typography.label3, { color: Colors.brand }]}>{WRONG_REASON_LABEL[n.wrongReason]}</Text>
+                </View>
               </View>
               <Text style={[Typography.bold3, { color:Colors.ink, marginBottom:8, lineHeight:20 }]}>{n.question}</Text>
               {n.passageSnippet && (
@@ -396,11 +409,14 @@ const s = StyleSheet.create({
   wrap:      { flex:1, backgroundColor:Colors.bg },
   header:    { backgroundColor:Colors.white, paddingTop:52, paddingHorizontal:18, paddingBottom:14, borderBottomWidth:1, borderBottomColor:Colors.line },
   headerTop: { flexDirection:'row', marginBottom:12 },
+  reasonBanner: { backgroundColor: Colors.brandBg, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#DDD9FF', marginBottom: 12 },
   backBtn:   { width:34, height:34, borderRadius:11, borderWidth:1, borderColor:Colors.line, alignItems:'center', justifyContent:'center' },
   filterRow: { flexDirection:'row', gap:7, flexWrap:'wrap', alignItems:'center' },
   pill:      { paddingHorizontal:12, paddingVertical:5, borderRadius:99, borderWidth:1.5, borderColor:Colors.line, backgroundColor:Colors.white },
   card:      { backgroundColor:Colors.white, borderRadius:18, borderWidth:1, borderColor:Colors.line, padding:16 },
   cardTop:   { flexDirection:'row', alignItems:'center', gap:6, marginBottom:10 },
+  reasonRow: { flexDirection:'row', marginBottom:8 },
+  reasonChip: { paddingHorizontal:10, paddingVertical:5, borderRadius:99, backgroundColor:Colors.brandBg, borderWidth:1, borderColor:'#DDD9FF' },
   typeBadge: { paddingHorizontal:9, paddingVertical:3, borderRadius:99 },
   dot:       { width:7, height:7, borderRadius:99 },
   ansRow:    { flexDirection:'row', gap:9, marginBottom:12 },

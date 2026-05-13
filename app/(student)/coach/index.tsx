@@ -11,6 +11,8 @@ import { useWrongNote } from '../../../hooks/useWrongNote';
 import { Colors }      from '../../../constants/colors';
 import { Typography }  from '../../../constants/typography';
 import { CoachKey }    from '../../../lib/gemini';
+import { ScoreBand } from '../../../stores/useAppStore';
+import { getRecommendedScoreBand, SCORE_BAND_META } from '../../../lib/scoreBand';
 
 const COACHES: Array<{
   key: CoachKey; name: string; emoji: string;
@@ -47,9 +49,11 @@ type CoachView = 'select' | 'chat';
 
 export default function CoachScreen() {
   const [view, setView]     = useState<CoachView>('select');
-  const { selectedCoach, setCoach, chatHistory } = useAppStore();
+  const { user, selectedCoach, setCoach, chatHistory } = useAppStore();
   const { ask, streaming, streamingText, error } = useCoach();
-  const { notes }                                = useWrongNote();
+  const { notes, topWrongReason }                = useWrongNote();
+  const scoreBand = (user?.scoreBand ?? '80s') as ScoreBand;
+  const recommendedBand = getRecommendedScoreBand(user?.latestMockScore);
 
   // 미해결 오답 자동 연동 — 최근 오답 최대 3개
   const unresolvedNotes = notes.filter(n => n.status === 'unresolved').slice(0, 3);
@@ -69,12 +73,34 @@ export default function CoachScreen() {
   }, [chatHistory, streamingText]);
 
   const currentCoach = COACHES.find(c => c.key === selectedCoach)!;
+  const quickPrompts: Record<ScoreBand, string[]> = {
+    '70s': [
+      '오늘 20분 공부 루틴 짜줘',
+      '본문 해석이 약한데 어디부터 보면 돼?',
+      '단어와 문법 중 뭐부터 해야 해?',
+    ],
+    '80s': [
+      '내 실수 패턴 기준으로 오늘 복습 순서 짜줘',
+      '빈칸이랑 순서배열 실수 줄이는 법 알려줘',
+      '90점 가려면 지금 뭘 먼저 잡아야 해?',
+    ],
+    '90plus': [
+      '만점권 학생용 변별력 훈련 15분 코스 짜줘',
+      '고난도 선지 비교하는 법 알려줘',
+      '시간 압박 줄이는 실전 팁 줘',
+    ],
+  };
 
   const handleSend = async () => {
     const q = input.trim();
     if (!q || streaming) return;
     setInput('');
     await ask(q);
+  };
+
+  const handleQuickPrompt = async (prompt: string) => {
+    if (streaming) return;
+    await ask(prompt);
   };
 
   if (view === 'chat') {
@@ -105,6 +131,30 @@ export default function CoachScreen() {
             <Text style={[Typography.label3, { color: Colors.amberDk }]}>Gemini 2.0 Flash</Text>
           </View>
         </View>
+
+        <View style={s.contextStrip}>
+          <Text style={[Typography.label2, { color: Colors.brand }]}>
+            {SCORE_BAND_META[scoreBand].label}
+            {recommendedBand && recommendedBand !== scoreBand ? ` · 추천 ${SCORE_BAND_META[recommendedBand].label}` : ''}
+          </Text>
+          {topWrongReason && (
+            <Text style={[Typography.label3, { color: Colors.ink3, marginTop: 2 }]}>
+              최근 약점 기반으로 답변을 조정하고 있어요.
+            </Text>
+          )}
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.quickRow}
+        >
+          {quickPrompts[scoreBand].map((prompt) => (
+            <Pressable key={prompt} style={s.quickChip} onPress={() => handleQuickPrompt(prompt)} disabled={streaming}>
+              <Text style={[Typography.label2, { color: Colors.brand }]}>{prompt}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
 
         {/* 메시지 목록 */}
         <FlatList
@@ -226,6 +276,9 @@ const s = StyleSheet.create({
   tag:        { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, borderWidth: 1.5 },
   selBtn:     { borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, paddingTop: 52, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.line },
+  contextStrip: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6, backgroundColor: Colors.white },
+  quickRow: { gap: 8, paddingHorizontal: 14, paddingBottom: 10, backgroundColor: Colors.white },
+  quickChip: { borderRadius: 99, borderWidth: 1, borderColor: '#DDD9FF', backgroundColor: Colors.brandBg, paddingHorizontal: 12, paddingVertical: 8 },
   backBtn:    { width: 32, height: 32, borderRadius: 10, borderWidth: 1, borderColor: Colors.line, alignItems: 'center', justifyContent: 'center' },
   ava:        { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   avaSm:      { width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },

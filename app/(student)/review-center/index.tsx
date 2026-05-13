@@ -7,6 +7,8 @@ import { useWrongNote } from '../../../hooks/useWrongNote';
 import { Colors } from '../../../constants/colors';
 import { Typography } from '../../../constants/typography';
 import { Shadow } from '../../../constants/shadow';
+import { useAppStore, ScoreBand } from '../../../stores/useAppStore';
+import { getRecommendedScoreBand, SCORE_BAND_META } from '../../../lib/scoreBand';
 
 function ReviewCard({
   icon,
@@ -52,8 +54,11 @@ function ReviewCard({
 
 export default function ReviewCenterScreen() {
   const router = useRouter();
+  const { user } = useAppStore();
   const { words, dueWords, masteredWords } = useWordbook();
-  const { notes } = useWrongNote();
+  const { notes, topWrongReason } = useWrongNote();
+  const scoreBand = (user?.scoreBand ?? '80s') as ScoreBand;
+  const recommendedBand = getRecommendedScoreBand(user?.latestMockScore);
 
   const unresolvedNotes = useMemo(
     () => notes.filter(note => note.status === 'unresolved'),
@@ -62,20 +67,57 @@ export default function ReviewCenterScreen() {
 
   const totalBacklog = dueWords.length + unresolvedNotes.length;
   const recommendedMinutes = Math.max(8, dueWords.length * 2 + unresolvedNotes.length * 3);
+  const bandPlan: Record<ScoreBand, { label: string; description: string }> = {
+    '70s': {
+      label: 'Basic Review',
+      description: '단어 회상 -> 쉬운 오답 복기 -> 지문 해석 재확인 순서로 자신감을 쌓습니다.',
+    },
+    '80s': {
+      label: 'Pro Review',
+      description: '자주 틀리는 유형을 묶어 보고 실수성 오답을 먼저 줄이는 흐름입니다.',
+    },
+    '90plus': {
+      label: 'Master Review',
+      description: '고난도 오답과 근거 문장 확인으로 변별력과 속도를 함께 다집니다.',
+    },
+  };
+  const trackTone: Record<ScoreBand, string> = {
+    '70s': Colors.green,
+    '80s': Colors.brand,
+    '90plus': Colors.amber,
+  };
   const reviewFlow = [
     {
       title: '1단계 · 기억 깨우기',
-      desc: dueWords.length > 0 ? `오늘 복습할 단어 ${dueWords.length}개를 빠르게 회상합니다.` : '오늘 복습할 단어는 없어요. 다음 단계로 넘어가도 좋아요.',
+      desc: dueWords.length > 0
+        ? scoreBand === '70s'
+          ? `오늘 복습할 단어 ${dueWords.length}개를 짧게 회상하며 기본 뜻부터 다시 잡습니다.`
+          : scoreBand === '80s'
+            ? `오늘 복습할 단어 ${dueWords.length}개 중 헷갈린 단어를 먼저 추려 정확도를 높입니다.`
+            : `오늘 복습할 단어 ${dueWords.length}개를 빠르게 회상하고 낯선 표현만 압축 점검합니다.`
+        : '오늘 복습할 단어는 없어요. 다음 단계로 넘어가도 좋아요.',
       status: dueWords.length > 0 ? 'ready' : 'done',
     },
     {
       title: '2단계 · 오답 원인 잡기',
-      desc: unresolvedNotes.length > 0 ? `미해결 오답 ${unresolvedNotes.length}개에서 헷갈린 이유를 다시 확인합니다.` : '현재 미해결 오답은 없어요.',
+      desc: unresolvedNotes.length > 0
+        ? scoreBand === '70s'
+          ? `미해결 오답 ${unresolvedNotes.length}개에서 왜 틀렸는지 쉬운 말로 다시 확인합니다.`
+          : scoreBand === '80s'
+            ? `미해결 오답 ${unresolvedNotes.length}개에서 실수 패턴과 함정 선지를 집중 점검합니다.`
+            : `미해결 오답 ${unresolvedNotes.length}개에서 근거 문장과 선택지 비교를 빠르게 복기합니다.`
+        : '현재 미해결 오답은 없어요.',
       status: unresolvedNotes.length > 0 ? 'ready' : 'done',
     },
     {
       title: '3단계 · 저장 자료 정리',
-      desc: words.length > 0 ? `누적 저장 단어 ${words.length}개 중 외운 단어 ${masteredWords.length}개를 점검합니다.` : '아직 저장된 단어가 없어요. 단어 학습 중 단어장을 채워보세요.',
+      desc: words.length > 0
+        ? scoreBand === '70s'
+          ? `누적 저장 단어 ${words.length}개 중 아직 낯선 단어부터 다시 보며 기초를 다집니다.`
+          : scoreBand === '80s'
+            ? `누적 저장 단어 ${words.length}개 중 자주 헷갈리는 단어와 표현을 다시 정리합니다.`
+            : `누적 저장 단어 ${words.length}개 중 외운 단어 ${masteredWords.length}개를 점검하며 약점만 압축 복습합니다.`
+        : '아직 저장된 단어가 없어요. 단어 학습 중 단어장을 채워보세요.',
       status: words.length > 0 ? 'ready' : 'idle',
     },
   ] as const;
@@ -97,7 +139,7 @@ export default function ReviewCenterScreen() {
           <View style={s.heroCard}>
             <View style={s.heroTop}>
               <View>
-                <Text style={[Typography.label2, { color: Colors.brand, marginBottom: 4 }]}>오늘의 복습 큐</Text>
+                <Text style={[Typography.label2, { color: trackTone[scoreBand], marginBottom: 4 }]}>{bandPlan[scoreBand].label}</Text>
                 <Text style={[Typography.h2, { color: Colors.ink }]}>{totalBacklog}개</Text>
               </View>
               <View style={s.heroBadge}>
@@ -106,8 +148,13 @@ export default function ReviewCenterScreen() {
               </View>
             </View>
             <Text style={[Typography.body3, { color: Colors.ink3, lineHeight: 21 }]}>
-              단어 회상, 오답 복기, 저장 자료 정리를 한 흐름으로 묶었습니다. 짧게 시작해도 복습이 끊기지 않도록 구성했어요.
+              {bandPlan[scoreBand].description} {topWrongReason ? `지금은 특히 ${topWrongReason === 'grammar_confusion' ? '문법 개념 혼동' : topWrongReason === 'vocab_gap' ? '단어 부족' : topWrongReason === 'sentence_parsing' ? '문장 해석 실패' : topWrongReason === 'choice_trap' ? '선지 비교 실수' : topWrongReason === 'time_pressure' ? '시간 부족' : '근거 찾기 실패'} 복습을 우선 권장해요.` : ''}
             </Text>
+            {recommendedBand && recommendedBand !== scoreBand && (
+              <Text style={[Typography.label2, { color: Colors.brand, marginTop: 8 }]}>
+                최근 학습 흐름 기준 추천 트랙: {SCORE_BAND_META[recommendedBand].label}
+              </Text>
+            )}
             <Pressable
               style={[s.primaryBtn, totalBacklog === 0 && { opacity: 0.55 }]}
               disabled={totalBacklog === 0}
@@ -126,7 +173,7 @@ export default function ReviewCenterScreen() {
         <View style={s.content}>
           <View style={s.sectionRow}>
             <Text style={[Typography.h4, { color: Colors.ink }]}>추천 커리큘럼</Text>
-            <Text style={[Typography.label2, { color: Colors.ink3 }]}>충분히 복습하는 흐름</Text>
+            <Text style={[Typography.label2, { color: Colors.ink3 }]}>{bandPlan[scoreBand].label}</Text>
           </View>
 
           <View style={s.flowWrap}>

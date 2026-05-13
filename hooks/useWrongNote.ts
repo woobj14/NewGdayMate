@@ -12,6 +12,16 @@ import { db } from '../lib/firebase';
 import { useAppStore } from '../stores/useAppStore';
 import { streamCoachResponse } from '../lib/gemini';
 import { KEYS, loadCache, saveCache } from '../lib/offlineCache';
+import { WrongReason } from '../stores/useAppStore';
+
+export const WRONG_REASON_LABEL: Record<WrongReason, string> = {
+  vocab_gap: '단어 부족',
+  grammar_confusion: '문법 개념 혼동',
+  sentence_parsing: '문장 해석 실패',
+  choice_trap: '선지 비교 실수',
+  time_pressure: '시간 부족',
+  evidence_miss: '근거 찾기 실패',
+};
 
 export interface WrongNote {
   id:             string;
@@ -24,6 +34,7 @@ export interface WrongNote {
   explanation:    string;       // 정답 해설 (교재 제공)
   // 분류
   type:           'grammar' | 'reading';  // 단어 제외
+  wrongReason:    WrongReason;
   contentId:      string;
   unitId:         string;
   // AI 선생님 해설
@@ -33,6 +44,31 @@ export interface WrongNote {
   status:         'unresolved' | 'resolved';
   savedAt:        Date;
   resolvedAt:     Date | null;
+}
+
+function inferWrongReason(params: {
+  type: 'grammar' | 'reading';
+  questionType: string;
+  myAnswer: string;
+  passageSnippet: string;
+}) {
+  const questionType = params.questionType.toLowerCase();
+  const myAnswer = params.myAnswer.trim();
+
+  if (!myAnswer || myAnswer === '미응답') return 'time_pressure' as WrongReason;
+  if (params.type === 'grammar' || questionType.includes('문법') || questionType.includes('어법')) {
+    return 'grammar_confusion' as WrongReason;
+  }
+  if (questionType.includes('순서') || questionType.includes('주제') || questionType.includes('요지') || questionType.includes('제목')) {
+    return 'evidence_miss' as WrongReason;
+  }
+  if (questionType.includes('지칭') || questionType.includes('추론') || questionType.includes('참조')) {
+    return 'choice_trap' as WrongReason;
+  }
+  if (questionType.includes('빈칸') || params.passageSnippet.length > 70) {
+    return 'sentence_parsing' as WrongReason;
+  }
+  return 'vocab_gap' as WrongReason;
 }
 
 export function useWrongNote() {
@@ -59,6 +95,12 @@ export function useWrongNote() {
       if (cachedNotes) {
         setNotes(cachedNotes.map(note => ({
           ...note,
+          wrongReason: note.wrongReason ?? inferWrongReason({
+            type: note.type,
+            questionType: note.questionType,
+            myAnswer: note.myAnswer,
+            passageSnippet: note.passageSnippet,
+          }),
           savedAt: new Date(note.savedAt),
           resolvedAt: note.resolvedAt ? new Date(note.resolvedAt) : null,
         })));
@@ -87,6 +129,12 @@ export function useWrongNote() {
             passageSnippet: data.passageSnippet ?? '',
             explanation:    data.explanation ?? '',
             type:           data.type ?? 'grammar',
+            wrongReason:    data.wrongReason ?? inferWrongReason({
+              type: data.type ?? 'grammar',
+              questionType: data.questionType ?? '객관식',
+              myAnswer: data.myAnswer ?? '',
+              passageSnippet: data.passageSnippet ?? '',
+            }),
             contentId:      data.contentId ?? '',
             unitId:         data.unitId ?? '',
             teacherExplain: data.teacherExplain ?? '',
@@ -121,10 +169,12 @@ export function useWrongNote() {
     contentId: string; unitId: string;
   }) => {
     if (!user) return null;
+    const wrongReason = inferWrongReason(params);
     if (isLocalOnlySession) {
       const localNote: WrongNote = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
         ...params,
+        wrongReason,
         teacherExplain: '',
         explainStatus: 'none',
         status: 'unresolved',
@@ -139,6 +189,7 @@ export function useWrongNote() {
 
     const ref = await addDoc(collection(db, 'users', user.uid, 'wrongNotes'), {
       ...params,
+      wrongReason,
       teacherExplain: '',
       status: 'unresolved',
       savedAt: serverTimestamp(),
@@ -225,10 +276,27 @@ export function useWrongNote() {
   }, [user, notes, isLocalOnlySession]);
 
   const unresolvedCount = notes.filter(n => n.status === 'unresolved').length;
+  const wrongReasonCounts = notes.reduce<Record<WrongReason, number>>((acc, note) => {
+    acc[note.wrongReason] += 1;
+    return acc;
+  }, {
+    vocab_gap: 0,
+    grammar_confusion: 0,
+    sentence_parsing: 0,
+    choice_trap: 0,
+    time_pressure: 0,
+    evidence_miss: 0,
+  });
+  const topWrongReason = (Object.entries(wrongReasonCounts) as Array<[WrongReason, number]>)
+    .sort((a, b) => b[1] - a[1])[0]?.[1]
+      ? (Object.entries(wrongReasonCounts) as Array<[WrongReason, number]>).sort((a, b) => b[1] - a[1])[0][0]
+      : null;
 
   return {
     notes, loading, streaming,
     unresolvedCount,
+    wrongReasonCounts,
+    topWrongReason,
     saveWrongNote, generateExplain, resolveNote,
   };
 }

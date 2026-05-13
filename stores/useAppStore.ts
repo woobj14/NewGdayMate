@@ -10,6 +10,14 @@ import { CoachKey } from '../lib/gemini';
 
 export type Role = 'student' | 'teacher' | 'admin';
 export type MembershipTier = 'basic' | 'professional' | 'superb';
+export type ScoreBand = '70s' | '80s' | '90plus';
+export type WrongReason =
+  | 'vocab_gap'
+  | 'grammar_confusion'
+  | 'sentence_parsing'
+  | 'choice_trap'
+  | 'time_pressure'
+  | 'evidence_miss';
 
 export interface User {
   uid:         string;
@@ -24,6 +32,9 @@ export interface User {
   academyName?: string;
   classId?:    string;
   grade?:      string;
+  scoreBand?:  ScoreBand;
+  latestMockScore?: number;
+  latestMockTakenAt?: string;
   teacherUid?: string;
   teacherCode?: string;
   membershipTier?: MembershipTier;

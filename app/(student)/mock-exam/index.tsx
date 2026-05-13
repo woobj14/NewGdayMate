@@ -12,9 +12,14 @@ import { useRouter } from 'expo-router';
 import { generateMockQuestion, MockQType } from '../../../lib/gemini';
 import { useStudy } from '../../../hooks/useStudy';
 import { useWrongNote } from '../../../hooks/useWrongNote';
+import { useAppStore } from '../../../stores/useAppStore';
 import { Colors } from '../../../constants/colors';
 import { Shadow } from '../../../constants/shadow';
 import { Typography } from '../../../constants/typography';
+import { db, refs } from '../../../lib/firebase';
+import { setDoc, serverTimestamp } from 'firebase/firestore';
+import { ScoreBand } from '../../../stores/useAppStore';
+import { SCORE_BAND_META, getRecommendedScoreBand } from '../../../lib/scoreBand';
 
 // ── 문항 유형 ──
 type QType = 'grammar' | 'fill' | 'topic' | 'order_sentence' | 'reference';
@@ -88,6 +93,8 @@ export default function MockExamScreen() {
   const router = useRouter();
   const { completeActivity } = useStudy();
   const { saveWrongNote } = useWrongNote();
+  const { user, setUser } = useAppStore();
+  const scoreBand = (user?.scoreBand ?? '80s') as ScoreBand;
 
   const { notes } = useWrongNote();  // 오답노트 데이터
 
@@ -253,9 +260,23 @@ export default function MockExamScreen() {
     const xp = Math.round((score / questions.length) * 80) + 20;
     await completeActivity('mock_exam', xp);
 
+    const pctScore = Math.round((score / questions.length) * 100);
+    if (user) {
+      const latestMockTakenAt = new Date().toISOString();
+      setUser({
+        ...user,
+        latestMockScore: pctScore,
+        latestMockTakenAt,
+      });
+      await setDoc(refs.users(user.uid), {
+        latestMockScore: pctScore,
+        latestMockTakenAt: serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    }
+
     setSaving(false);
     setDone(true);
-  }, [answers]);
+  }, [answers, questions, completeActivity, saveWrongNote, user, setUser]);
 
   // ── 결과 화면 ──
   if (done) {
@@ -263,6 +284,27 @@ export default function MockExamScreen() {
     const pct       = Math.round((score / questions.length) * 100);
     const grade     = pct >= 90 ? '1등급' : pct >= 80 ? '2등급' : pct >= 70 ? '3등급' : pct >= 60 ? '4등급' : '5등급';
     const gradeColor= pct >= 90 ? Colors.brand : pct >= 70 ? Colors.green : pct >= 50 ? Colors.amber : Colors.red;
+    const recommendedBand = getRecommendedScoreBand(pct) ?? scoreBand;
+    const feedbackMap: Record<ScoreBand, { title: string; body: string }> = {
+      '70s': {
+        title: 'Basic Track 피드백',
+        body: pct >= 80
+          ? '기초 체력이 올라오고 있어요. 이제 해석과 오답 복기를 조금 더 늘리면 다음 트랙으로 자연스럽게 올라갈 수 있어요.'
+          : '지금은 점수를 의식하기보다 단어와 문장 해석을 흔들리지 않게 만드는 것이 가장 중요해요.',
+      },
+      '80s': {
+        title: 'Pro Track 피드백',
+        body: pct >= 90
+          ? '실수만 더 줄이면 상위권 안정권이에요. 오답 유형과 선지 비교 훈련으로 마무리하면 좋아요.'
+          : '기본기는 충분해요. 자주 틀리는 유형을 압축해서 복기하면 점수가 더 안정됩니다.',
+      },
+      '90plus': {
+        title: 'Master Track 피드백',
+        body: pct >= 90
+          ? '좋아요. 지금부터는 변별력 문제와 시간 압박 대응이 핵심이에요.'
+          : '점수보다 중요한 건 고난도 문항에서 흔들린 이유를 찾는 거예요. 근거 문장과 선지 차이를 다시 보세요.',
+      },
+    };
 
     // 영역별 분석
     const typeStats = Object.entries(TYPE_LABELS).map(([type, label]) => {
@@ -305,6 +347,20 @@ export default function MockExamScreen() {
         <View style={{ padding: 16 }}>
           {/* 영역별 분석 */}
           <Text style={[Typography.h4, { marginBottom: 12 }]}>영역별 분석</Text>
+          <View style={s.card}>
+            <View style={[s.trackResultBadge, { backgroundColor: `${gradeColor}14`, borderColor: `${gradeColor}33` }]}>
+              <Text style={[Typography.label2, { color: gradeColor }]}>
+                현재 {SCORE_BAND_META[scoreBand].label} · 추천 {SCORE_BAND_META[recommendedBand].label}
+              </Text>
+            </View>
+            <Text style={[Typography.bold2, { color: Colors.ink, marginBottom: 6 }]}>
+              {feedbackMap[scoreBand].title}
+            </Text>
+            <Text style={[Typography.body3, { color: Colors.ink3, lineHeight: 20 }]}>
+              {feedbackMap[scoreBand].body}
+            </Text>
+          </View>
+
           <View style={s.card}>
             {typeStats.map((ts, i) => (
               <View key={i} style={[s.typeRow, i < typeStats.length - 1 && { marginBottom: 12 }]}>
@@ -600,6 +656,7 @@ const s = StyleSheet.create({
   resultStats:  { flexDirection: 'row', borderTopWidth: 0.5, borderTopColor: 'rgba(255,255,255,.25)', paddingTop: 14 },
   rStatCell:    { flex: 1, alignItems: 'center' },
   card:         { backgroundColor: Colors.white, borderRadius: 14, borderWidth: 1, borderColor: Colors.line, padding: 14, marginBottom: 14 },
+  trackResultBadge: { alignSelf: 'flex-start', borderRadius: 99, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5, marginBottom: 10 },
   typeRow:      { flexDirection: 'row', alignItems: 'center', gap: 10 },
   typeDot:      { width: 8, height: 8, borderRadius: 99, flexShrink: 0 },
   miniBar:      { flex: 1, height: 5, backgroundColor: Colors.line, borderRadius: 99, overflow: 'hidden' },

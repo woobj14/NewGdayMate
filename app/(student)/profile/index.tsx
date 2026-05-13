@@ -6,9 +6,15 @@ import { useAuth } from '../../../hooks/useAuth';
 import { useWordbook } from '../../../hooks/useWordbook';
 import { Colors } from '../../../constants/colors';
 import { Typography } from '../../../constants/typography';
+import { ScoreBand } from '../../../stores/useAppStore';
+import { getRecommendedScoreBand, SCORE_BAND_META } from '../../../lib/scoreBand';
 
 const AVATARS = ['🦊','🐯','🐻','🐰','🦁','🐧','🦉','🐸'];
 const GRADES  = ['중1','중2','중3','고1','고2','고3'];
+const SCORE_BANDS: Array<{ key: ScoreBand; label: string; desc: string }> = Object.entries(SCORE_BAND_META).map(([key, value]) => ({
+  key: key as ScoreBand,
+  ...value,
+}));
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -21,21 +27,25 @@ export default function ProfileScreen() {
   const [region, setRegion] = useState(user?.region ?? '');
   const [avatar, setAvatar] = useState(user?.avatar ?? '🦊');
   const [grade, setGrade] = useState(user?.grade ?? '중3');
+  const [scoreBand, setScoreBand] = useState<ScoreBand>(user?.scoreBand ?? '80s');
   const [loading, setLoading] = useState(false);
+  const recommendedBand = getRecommendedScoreBand(user?.latestMockScore);
+  const showRecommendation = !!recommendedBand && recommendedBand !== scoreBand;
 
   const xpInLevel = xp % 400;
   const levelPct = Math.round((xpInLevel / 400) * 100);
   const accountSummary = useMemo(() => [
     { label: '학원 이름', value: user?.academyName ?? '-' },
+    { label: '학습 트랙', value: SCORE_BANDS.find(item => item.key === (user?.scoreBand ?? '80s'))?.label ?? 'Pro Track' },
     { label: '이메일', value: user?.email ?? '-' },
     { label: '휴대폰', value: user?.phoneNumber ?? '-' },
     { label: '지역', value: user?.region ?? '-' },
-  ], [user?.academyName, user?.email, user?.phoneNumber, user?.region]);
+  ], [user?.academyName, user?.email, user?.phoneNumber, user?.region, user?.scoreBand]);
 
   const handleSave = async () => {
     setLoading(true);
     try {
-      await updateAccount({ displayName: displayName.trim(), region: region.trim(), avatar, grade });
+      await updateAccount({ displayName: displayName.trim(), region: region.trim(), avatar, grade, scoreBand });
       setEditing(false);
     } catch (error: any) {
       Alert.alert('저장 실패', error?.message ?? '회원정보를 저장하지 못했어요.');
@@ -91,7 +101,9 @@ export default function ProfileScreen() {
           {user?.grade ?? '중3'} · {user?.region ?? '지역 미설정'}
         </Text>
         <View style={s.heroBadge}>
-          <Text style={[Typography.label2, { color: '#fff' }]}>학생 계정</Text>
+          <Text style={[Typography.label2, { color: '#fff' }]}>
+            학생 계정 · {SCORE_BANDS.find(item => item.key === (user?.scoreBand ?? '80s'))?.label ?? 'Pro Track'}
+          </Text>
         </View>
       </View>
 
@@ -134,6 +146,27 @@ export default function ProfileScreen() {
               {GRADES.map(item => (
                 <Pressable key={item} style={[s.gradeBtn, grade === item && s.gradeBtnActive]} onPress={() => setGrade(item)}>
                   <Text style={[Typography.label2, { color: grade === item ? '#fff' : Colors.ink3 }]}>{item}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={s.label}>학습 코스</Text>
+            {showRecommendation && (
+              <Pressable style={s.recommendBanner} onPress={() => setScoreBand(recommendedBand!)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[Typography.label2, { color: Colors.brand, marginBottom: 3 }]}>최근 학습 흐름 기반 추천</Text>
+                  <Text style={[Typography.bold3, { color: Colors.ink }]}>
+                    지금은 {SCORE_BAND_META[recommendedBand!].label}이 더 잘 맞아요
+                  </Text>
+                </View>
+                <Text style={[Typography.bold3, { color: Colors.brand }]}>적용</Text>
+              </Pressable>
+            )}
+            <View style={s.scoreBandGrid}>
+              {SCORE_BANDS.map(item => (
+                <Pressable key={item.key} style={[s.scoreBandBtn, scoreBand === item.key && s.scoreBandBtnActive]} onPress={() => setScoreBand(item.key)}>
+                  <Text style={[Typography.bold3, { color: scoreBand === item.key ? '#fff' : Colors.ink }]}>{item.label}</Text>
+                  <Text style={[Typography.label3, { color: scoreBand === item.key ? 'rgba(255,255,255,.8)' : Colors.ink3, marginTop: 3 }]}>{item.desc}</Text>
                 </Pressable>
               ))}
             </View>
@@ -193,6 +226,10 @@ const s = StyleSheet.create({
   gradeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   gradeBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.line, backgroundColor: Colors.white },
   gradeBtnActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  scoreBandGrid: { gap: 8, marginBottom: 14 },
+  recommendBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.brandBg, borderRadius: 14, borderWidth: 1, borderColor: '#DDD9FF', padding: 12, marginBottom: 10 },
+  scoreBandBtn: { borderRadius: 14, borderWidth: 1.5, borderColor: Colors.line, backgroundColor: Colors.white, paddingHorizontal: 14, paddingVertical: 12 },
+  scoreBandBtnActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
   avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   avatarBtn: { width: 56, height: 56, borderRadius: 18, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
   avatarBtnActive: { borderColor: Colors.brand, backgroundColor: Colors.brandBg },

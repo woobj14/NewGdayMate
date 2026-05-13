@@ -15,18 +15,27 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useLesson }   from '../../hooks/useLesson';
 import { STEP_DEFS, CONTENT_TYPE_COLOR, CONTENT_TYPE_EMOJI, ContentType } from '../../types/lesson';
 import { useWordbook } from '../../hooks/useWordbook';
-import { useWrongNote } from '../../hooks/useWrongNote';
+import { useWrongNote, WRONG_REASON_LABEL } from '../../hooks/useWrongNote';
 import { useFCM }      from '../../hooks/useFCM';
 import { useMission }  from '../../hooks/useMission';
 import { Colors }      from '../../constants/colors';
 import { Flame, Star, BookOpen, ChevronRight, MessageCircle, BookMarked } from 'lucide-react-native';
 import { Shadow }      from '../../constants/shadow';
 import { Typography }  from '../../constants/typography';
+import { ScoreBand } from '../../stores/useAppStore';
+import { getRecommendedScoreBand, SCORE_BAND_META } from '../../lib/scoreBand';
 
 interface FeedItem {
   id:string; title:string; subtitle:string;
   type:'word'|'grammar'|'reading'|'mock';
   xpReward:number; progress:number; done:boolean;
+}
+
+interface FocusAction {
+  title: string;
+  subtitle: string;
+  accent: string;
+  route: string;
 }
 
 // ── 눌림 피드백 래퍼 ─────────────────────────────────────────────
@@ -49,7 +58,7 @@ function ScalePressable({ children, style, onPress }: any) {
 export default function StudentHome() {
   const router = useRouter();
   const { dueWords }                  = useWordbook();
-  const { unresolvedCount }           = useWrongNote();
+  const { unresolvedCount, topWrongReason } = useWrongNote();
   const { lessons, getPct }           = useLesson();
   const { scheduleWordReviewNotif }   = useFCM();
   const { user, xp, streak, level, selectedCoach } = useAppStore();
@@ -60,9 +69,99 @@ export default function StudentHome() {
   const xpPct       = Math.min(100, Math.round(xpInLevel / 400 * 100));
   const reviewBacklog = dueWords.length + unresolvedCount;
   const coachMap    = { betty:'B', lukas:'L', alex:'A' } as const;
-
+  const scoreBand = (user?.scoreBand ?? '80s') as ScoreBand;
+  const recommendedBand = getRecommendedScoreBand(user?.latestMockScore);
   const nextLesson = lessons.find(l => { const p=getPct(l.id,l.stepCount); return p>0&&p<100; })
                   ?? lessons.find(l => getPct(l.id,l.stepCount)===0);
+
+  const bandCopy: Record<ScoreBand, { hero: string; plan: string; coach: string; review: string }> = {
+    '70s': {
+      hero: '오늘은 많이 말고 정확하게 가자',
+      plan: '단어 10개 · 오답 3개 · 본문 1지문으로 기초를 단단히 쌓아요.',
+      coach: '오늘은 단어와 해석부터 잡자. 막힌 문장을 끝까지 같이 보자!',
+      review: '오늘 복습은 기억 깨우기부터 천천히 가는 게 좋아요.',
+    },
+    '80s': {
+      hero: '실수 패턴만 줄이면 90점이 보여요',
+      plan: '자주 틀리는 유형을 짧고 정확하게 끊어 연습합니다.',
+      coach: '최근 오답을 보면 실수형 문제가 보여. 함정 선지를 같이 잡아보자.',
+      review: '오답 유형 복기와 선지 비교 연습이 가장 효율적이에요.',
+    },
+    '90plus': {
+      hero: '한 문제 차이가 만점을 가릅니다',
+      plan: '근거 찾기와 시간 압박에 강해지는 변별력 훈련을 진행해요.',
+      coach: '이제는 속도와 근거 싸움이야. 고난도 함정만 골라서 보자.',
+      review: '고난도 오답과 근거 문장 확인으로 마무리하는 게 좋아요.',
+    },
+  };
+  const activeCopy = bandCopy[scoreBand];
+  const trackTone: Record<ScoreBand, { accent: string; soft: string }> = {
+    '70s': { accent: Colors.green, soft: Colors.greenBg },
+    '80s': { accent: Colors.brand, soft: Colors.brandBg },
+    '90plus': { accent: Colors.amber, soft: Colors.amberBg },
+  };
+  const focusActions: Record<ScoreBand, FocusAction[]> = {
+    '70s': [
+      {
+        title: '단어 10개 다시 보기',
+        subtitle: '기본 뜻과 핵심 표현부터 안정적으로',
+        accent: Colors.green,
+        route: '/(student)/wordbook',
+      },
+      {
+        title: '오답 3개 복기',
+        subtitle: '왜 틀렸는지 쉬운 말로 다시 확인',
+        accent: Colors.brand,
+        route: '/(student)/wrong-notes',
+      },
+      {
+        title: '본문 1지문 이어서',
+        subtitle: '짧은 해석 성공 경험 만들기',
+        accent: Colors.orange,
+        route: nextLesson ? `/(student)/learn/[lessonId]?lessonId=${nextLesson.id}&type=${nextLesson.type}&title=${encodeURIComponent(nextLesson.title)}` : '/(student)/learn/',
+      },
+    ],
+    '80s': [
+      {
+        title: '자주 틀리는 유형 복습',
+        subtitle: topWrongReason ? `${WRONG_REASON_LABEL[topWrongReason]} 우선 정리` : '실수 패턴부터 먼저 정리',
+        accent: Colors.brand,
+        route: '/(student)/wrong-notes',
+      },
+      {
+        title: '복습 허브 15분 코스',
+        subtitle: '단어 -> 오답 -> 저장 자료 순서',
+        accent: Colors.green,
+        route: '/(student)/review-center',
+      },
+      {
+        title: '실전 감각 점검',
+        subtitle: '시험형 흐름으로 끊어 풀기',
+        accent: Colors.orange,
+        route: '/(student)/mock-exam',
+      },
+    ],
+    '90plus': [
+      {
+        title: '변별력 오답 복기',
+        subtitle: '근거 문장과 선지 차이만 압축',
+        accent: Colors.amber,
+        route: '/(student)/wrong-notes',
+      },
+      {
+        title: '모의고사 한 세트',
+        subtitle: '시간 압박 포함 실전 감각 유지',
+        accent: Colors.brand,
+        route: '/(student)/mock-exam',
+      },
+      {
+        title: 'AI 코치 전략 점검',
+        subtitle: '만점권용 빠른 처방 받기',
+        accent: Colors.green,
+        route: '/(student)/coach',
+      },
+    ],
+  };
 
   const typeColor: Record<string,string> = {
     word:Colors.green, grammar:Colors.amber, reading:Colors.brand, mock:Colors.orange,
@@ -89,7 +188,7 @@ export default function StudentHome() {
               안녕하세요, {user?.displayName ?? '학생'}님 
             </Text>
             <Text style={[Typography.h2,{color:'#fff',letterSpacing:-.8}]}>
-              오늘도 화이팅!
+              {activeCopy.hero}
             </Text>
           </View>
           <Pressable style={s.levelBadge} onPress={() => router.push('/(student)/profile' as any)}>
@@ -124,9 +223,65 @@ export default function StudentHome() {
             <View style={[s.xpFill,{width:`${xpPct}%` as any}]}/>
           </View>
         </View>
+
+        <View style={s.bandBrief}>
+          <Text style={[Typography.bold3, { color: '#fff', marginBottom: 3 }]}>
+            {SCORE_BAND_META[scoreBand].label}
+          </Text>
+          <Text style={[Typography.label2, { color: 'rgba(255,255,255,.72)', lineHeight: 18 }]}>
+            {activeCopy.plan}
+          </Text>
+          {recommendedBand && recommendedBand !== scoreBand && (
+            <Text style={[Typography.label2, { color: '#fff', marginTop: 8 }]}>
+              최근 학습 흐름 기준 추천: {SCORE_BAND_META[recommendedBand].label}
+            </Text>
+          )}
+        </View>
       </View>
 
       <View style={{paddingHorizontal:16,paddingTop:14}}>
+
+        <View style={[s.trackSummaryCard, { borderColor: trackTone[scoreBand].accent + '44' }]}>
+          <View style={[s.trackSummaryBadge, { backgroundColor: trackTone[scoreBand].soft }]}>
+            <Text style={[Typography.label2, { color: trackTone[scoreBand].accent }]}>
+              {SCORE_BAND_META[scoreBand].label}
+            </Text>
+          </View>
+          <Text style={[Typography.bold2, { color: Colors.ink, marginBottom: 4 }]}>오늘의 포커스</Text>
+          <Text style={[Typography.body3, { color: Colors.ink3, lineHeight: 20 }]}>
+            {scoreBand === '70s'
+              ? '기초 개념과 해석을 흔들리지 않게 만드는 루틴으로 갑니다.'
+              : scoreBand === '80s'
+                ? '실수 패턴을 줄이고 시험형 문제 적응력을 높이는 루틴으로 갑니다.'
+                : '변별력 문제와 시간 관리에 강해지는 루틴으로 갑니다.'}
+          </Text>
+        </View>
+
+        <View style={s.sectionRow}>
+          <Text style={[Typography.h4]}>오늘의 포커스</Text>
+          <Text style={[Typography.label2, { color: trackTone[scoreBand].accent }]}>
+            {SCORE_BAND_META[scoreBand].label}
+          </Text>
+        </View>
+
+        <View style={s.focusList}>
+          {focusActions[scoreBand].map((action) => (
+            <ScalePressable
+              key={action.title}
+              style={[s.focusCard, Shadow.card as any]}
+              onPress={() => router.push(action.route as any)}
+            >
+              <View style={[s.focusIcon, { backgroundColor: `${action.accent}14` }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={[Typography.bold3, { color: Colors.ink, marginBottom: 3 }]}>{action.title}</Text>
+                <Text style={[Typography.label2, { color: Colors.ink3, lineHeight: 18 }]}>{action.subtitle}</Text>
+              </View>
+              <View style={[s.focusArrow, { backgroundColor: `${action.accent}14` }]}>
+                <ChevronRight size={15} color={action.accent} strokeWidth={2.2} />
+              </View>
+            </ScalePressable>
+          ))}
+        </View>
 
         {/* ── 다음 학습 추천 카드 ── */}
         {nextLesson && (
@@ -177,7 +332,7 @@ export default function StudentHome() {
             <View style={{flex:1}}>
               <Text style={[Typography.label2,{color:Colors.brand,marginBottom:3,fontWeight:'700'}]}>AI 코치</Text>
               <Text style={[Typography.body3,{color:Colors.ink,lineHeight:18}]}>
-                오늘 3과 단어가 약해 보여! 같이 복습해볼까? 
+                {topWrongReason ? `${WRONG_REASON_LABEL[topWrongReason]} 중심으로 보자. ${activeCopy.coach}` : activeCopy.coach}
               </Text>
             </View>
           </View>
@@ -198,7 +353,7 @@ export default function StudentHome() {
                 오늘 복습할 단어 {dueWords.length}개
               </Text>
               <Text style={[Typography.label2,{color:'rgba(255,255,255,.7)'}]}>
-                SM-2 알고리즘 · 지금 복습하면 기억력 +40%
+                {activeCopy.review}
               </Text>
             </View>
             <ChevronRight size={18} color='rgba(255,255,255,.8)' strokeWidth={2}/>
@@ -321,6 +476,9 @@ const s = StyleSheet.create({
   // 헤더 — 그라데이션
   header:      { backgroundColor:Colors.brand, paddingTop:52, paddingHorizontal:18, paddingBottom:20 },
   headerTop:   { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start' },
+  bandBrief:   { marginTop: 12, borderRadius: 16, padding: 12, backgroundColor: 'rgba(255,255,255,.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,.14)' },
+  trackSummaryCard: { backgroundColor: Colors.white, borderRadius: 18, borderWidth: 1.5, padding: 14, marginBottom: 12 },
+  trackSummaryBadge: { alignSelf: 'flex-start', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5, marginBottom: 8 },
   levelBadge:  { backgroundColor:'rgba(255,255,255,.2)', borderRadius:99, paddingHorizontal:12, paddingVertical:5, borderWidth:1, borderColor:'rgba(255,255,255,.3)' },
   statChip:    { flexDirection:'row', alignItems:'center', gap:7, backgroundColor:'rgba(255,255,255,.15)', borderRadius:99, paddingHorizontal:12, paddingVertical:6 },
   xpTrack:     { height:6, backgroundColor:'rgba(255,255,255,.25)', borderRadius:99, overflow:'hidden' },
@@ -338,6 +496,10 @@ const s = StyleSheet.create({
   // 복습 배너
   reviewBanner:{ flexDirection:'row', alignItems:'center', gap:12, backgroundColor:Colors.ink, borderRadius:18, padding:14, marginBottom:10 },
   reviewIco:   { width:40, height:40, borderRadius:12, backgroundColor:'rgba(255,255,255,.1)', alignItems:'center', justifyContent:'center' },
+  focusList:   { gap: 9, marginBottom: 12 },
+  focusCard:   { flexDirection:'row', alignItems:'center', gap:12, backgroundColor:Colors.white, borderRadius:16, padding:14 },
+  focusIcon:   { width:10, height:46, borderRadius:99, flexShrink:0 },
+  focusArrow:  { width:30, height:30, borderRadius:10, alignItems:'center', justifyContent:'center' },
 
   // 섹션
   sectionRow:  { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:6, marginBottom:10 },
