@@ -39,6 +39,7 @@ interface WordQ {
   pos:      string;
   ko:       string;
   def:      string;
+  defKo?:   string;
   choices:  string[];   // 4지선다 오답 포함 4개
 }
 
@@ -62,16 +63,40 @@ function toWordQ(w: any): Omit<WordQ, 'choices'> {
     pos:      w.pos      ?? '',
     ko:       w.ko       ?? '',
     def:      w.def      ?? '',
+    defKo:    w.defKo    ?? '',
   };
+}
+
+async function translateDefinitionHint(def: string): Promise<string> {
+  const cleaned = def.trim();
+  if (!cleaned) return '';
+
+  const prompt = [
+    '아래 영어 영영풀이 문장을 한국어 뜻으로 자연스럽게 번역하세요.',
+    '규칙:',
+    '- 다른 설명 없이 번역 결과만 출력',
+    '- 사전식 짧은 뜻이 아니라 영영풀이 문장의 의미가 살아 있게 번역',
+    '- 1문장으로 간결하게 작성',
+    '',
+    cleaned,
+  ].join('\n');
+
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: { temperature: 0.1, maxOutputTokens: 120, thinkingConfig: { thinkingBudget: 0 } } as any,
+  });
+
+  const result = await model.generateContent(prompt);
+  return result.response.text().trim().replace(/^["']|["']$/g, '');
 }
 
 // 데모 단어 (Firestore 로드 전 fallback)
 const DEMO_WORDS_RAW = [
-  { word:'observe',    phonetic:'/əbˈzɜːrv/',    pos:'v.',   ko:'관찰하다',   def:'to look at something carefully'       },
-  { word:'ancient',    phonetic:'/ˈeɪnʃənt/',    pos:'adj.', ko:'고대의',     def:'from a very early period in history'  },
-  { word:'telescope',  phonetic:'/ˈtelɪskəʊp/', pos:'n.',   ko:'망원경',     def:'instrument to see distant objects'     },
-  { word:'astronomer', phonetic:'/əˈstrɒnəmər/',pos:'n.',   ko:'천문학자',   def:'scientist who studies stars'           },
-  { word:'wonder',     phonetic:'/ˈwʌndər/',     pos:'n.',   ko:'경이로움',   def:'a feeling of amazement and admiration' },
+  { word:'observe',    phonetic:'/əbˈzɜːrv/',    pos:'v.',   ko:'관찰하다',   def:'to look at something carefully',        defKo:'무언가를 주의 깊게 살펴보다' },
+  { word:'ancient',    phonetic:'/ˈeɪnʃənt/',    pos:'adj.', ko:'고대의',     def:'from a very early period in history',   defKo:'역사상 아주 오래전 시기의' },
+  { word:'telescope',  phonetic:'/ˈtelɪskəʊp/', pos:'n.',   ko:'망원경',     def:'instrument to see distant objects',      defKo:'멀리 있는 물체를 볼 때 사용하는 도구' },
+  { word:'astronomer', phonetic:'/əˈstrɒnəmər/',pos:'n.',   ko:'천문학자',   def:'scientist who studies stars',            defKo:'별을 연구하는 과학자' },
+  { word:'wonder',     phonetic:'/ˈwʌndər/',     pos:'n.',   ko:'경이로움',   def:'a feeling of amazement and admiration',  defKo:'놀라움과 감탄을 느끼는 감정' },
 ];
 
 type QuizType = 'meaning' | 'spelling' | 'matching' | 'typing' | 'grammar_mc' | 'content_mc';
@@ -287,10 +312,37 @@ JSON 배열만 응답 (다른 텍스트 없이):
   const [mIdx, setMIdx]     = useState(0);
   const [mSel, setMSel]     = useState<number>(-1);
   const [mDone, setMDone]   = useState(false);
+  const [showMeaningHint, setShowMeaningHint] = useState(false);
+  const [definitionKoCache, setDefinitionKoCache] = useState<Record<string, string>>({});
+  const [loadingHintKey, setLoadingHintKey] = useState<string | null>(null);
+
+  const resolveDefinitionKoHint = useCallback(async (q: Pick<WordQ, 'word' | 'def' | 'defKo'>) => {
+    const cacheKey = `${q.word}::${q.def}`;
+    if (q.defKo?.trim()) {
+      setDefinitionKoCache(prev => prev[cacheKey] ? prev : { ...prev, [cacheKey]: q.defKo!.trim() });
+      return q.defKo.trim();
+    }
+    if (definitionKoCache[cacheKey]) return definitionKoCache[cacheKey];
+    if (!q.def?.trim()) return '';
+
+    setLoadingHintKey(cacheKey);
+    try {
+      const translated = await translateDefinitionHint(q.def);
+      if (translated) {
+        setDefinitionKoCache(prev => ({ ...prev, [cacheKey]: translated }));
+        return translated;
+      }
+      return '';
+    } catch {
+      return '';
+    } finally {
+      setLoadingHintKey(current => current === cacheKey ? null : current);
+    }
+  }, [definitionKoCache]);
 
   const handleMeaningNext = useCallback(async () => {
     if (mIdx + 1 >= words.length) { await finishStep(); return; }
-    setMIdx(i => i + 1); setMSel(-1); setMDone(false);
+    setMIdx(i => i + 1); setMSel(-1); setMDone(false); setShowMeaningHint(false);
   }, [mIdx, words.length, finishStep]);
 
   /* ── 철자 맞추기 (spelling) ── */
@@ -335,14 +387,23 @@ JSON 배열만 응답 (다른 텍스트 없이):
   const [tIdx, setTIdx]     = useState(0);
   const [tVal, setTVal]     = useState('');
   const [tState, setTState] = useState<'idle'|'ok'|'err'>('idle');
+  const [typingHintPoints, setTypingHintPoints] = useState(1);
+  const [typingHintUnlocked, setTypingHintUnlocked] = useState(false);
+
+  const unlockTypingHint = useCallback(() => {
+    if (typingHintUnlocked || typingHintPoints <= 0) return;
+    setTypingHintPoints((prev) => Math.max(0, prev - 1));
+    setTypingHintUnlocked(true);
+  }, [typingHintPoints, typingHintUnlocked]);
 
   const submitTyping = useCallback(() => {
     const ans = words[tIdx].word;
     if (tVal.trim().toLowerCase() === ans) {
       setTState('ok');
+      setTypingHintPoints((prev) => prev + 1);
       setTimeout(async () => {
         if (tIdx + 1 >= words.length) { await finishStep(); return; }
-        setTIdx(i => i + 1); setTVal(''); setTState('idle');
+        setTIdx(i => i + 1); setTVal(''); setTState('idle'); setTypingHintUnlocked(false);
       }, 600);
     } else {
       setTState('err');
@@ -378,6 +439,9 @@ JSON 배열만 응답 (다른 텍스트 없이):
   if (type === 'meaning') {
     const q   = words[mIdx];
     const pct = ((mIdx + 1) / words.length) * 100;
+    const meaningHintKey = `${q.word}::${q.def}`;
+    const meaningHintKo = q.defKo?.trim() || definitionKoCache[meaningHintKey] || '';
+    const meaningHintLoading = loadingHintKey === meaningHintKey;
     return (
       <View style={s.wrap}>
         <View style={s.topBar}>
@@ -406,6 +470,42 @@ JSON 배열만 응답 (다른 텍스트 없이):
               style={s.addWordBtn}>
               <Text style={[Typography.label2, { color:Colors.ink3 }]}>+ 단어장 저장</Text>
             </Pressable>
+            <Pressable
+              onPress={async () => {
+                const next = !showMeaningHint;
+                setShowMeaningHint(next);
+                if (next && !meaningHintKo) {
+                  await resolveDefinitionKoHint(q);
+                }
+              }}
+              style={s.hintToggleBtn}
+            >
+              <Text style={[Typography.label2, { color:Colors.brand }]}>
+                {showMeaningHint ? '영영 힌트 닫기' : '영영 힌트 열기'}
+              </Text>
+            </Pressable>
+            {!showMeaningHint && (
+              <Text style={[Typography.label3, s.hintGuideText]}>
+                뜻이 바로 떠오르지 않으면 영영 힌트를 눌러 한 번 더 생각해보세요
+              </Text>
+            )}
+            {showMeaningHint && (
+              <View style={s.hintPanel}>
+                <View style={s.hintBlock}>
+                  <Text style={[Typography.label2, { color:Colors.brand, marginBottom:6 }]}>영영풀이</Text>
+                  <Text style={[Typography.body3, { color:Colors.ink, lineHeight:21 }]}>{q.def || '등록된 영영풀이가 없어요.'}</Text>
+                </View>
+                <View style={s.hintDivider} />
+                <View style={s.hintBlock}>
+                  <Text style={[Typography.label2, { color:Colors.ink2, marginBottom:6 }]}>영영풀이 한글뜻</Text>
+                  <Text style={[Typography.body3, { color:Colors.ink2, lineHeight:21 }]}>
+                    {meaningHintLoading
+                      ? '영영풀이 뜻을 정리하고 있어요...'
+                      : meaningHintKo || '영영풀이 한글뜻을 아직 준비하지 못했어요.'}
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
           {!!toast && (
             <View style={s.toastBox}>
@@ -1115,6 +1215,9 @@ JSON 배열만 응답 (다른 텍스트 없이):
   if (type === 'typing' || type === 'grammar_mc' || type === 'content_mc') {
     const q   = words[tIdx];
     const pct = ((tIdx + 1) / words.length) * 100;
+    const typingHintKey = `${q.word}::${q.def}`;
+    const typingHintKo = q.defKo?.trim() || definitionKoCache[typingHintKey] || '';
+    const typingHintLoading = loadingHintKey === typingHintKey;
     return (
       <View style={s.wrap}>
         <View style={s.topBar}>
@@ -1126,8 +1229,50 @@ JSON 배열만 응답 (다른 텍스트 없이):
           <Text style={[Typography.label2, { color:Colors.ink3, marginBottom:4 }]}>{stepTitle}</Text>
           <Text style={[Typography.label3, { color:Colors.ink3, marginBottom:14 }]}>영영풀이를 보고 단어를 입력하세요</Text>
           <View style={s.wordCard}>
+            <View style={s.hintScoreRow}>
+              <View style={s.hintScoreBadge}>
+                <Text style={[Typography.label2, { color:Colors.orange }]}>힌트 포인트 {typingHintPoints}</Text>
+              </View>
+              <Text style={[Typography.label3, { color:Colors.ink3 }]}>정답을 맞히면 +1</Text>
+            </View>
             <Text style={[Typography.body3, { color:Colors.ink2, lineHeight:22, marginBottom:6 }]}>{q.def}</Text>
             <Text style={[Typography.label2, { color:Colors.ink3 }]}>{q.pos}</Text>
+            {!typingHintUnlocked ? (
+              <>
+                <Pressable
+                  style={[s.hintActionBtn, typingHintPoints <= 0 && s.hintActionBtnDisabled]}
+                  onPress={async () => {
+                    unlockTypingHint();
+                    if (!typingHintKo) {
+                      await resolveDefinitionKoHint(q);
+                    }
+                  }}
+                  disabled={typingHintPoints <= 0}
+                >
+                  <Text style={[Typography.label2, { color:typingHintPoints <= 0 ? Colors.ink3 : Colors.orange }]}>
+                    포인트 1로 영영풀이 뜻 열기
+                  </Text>
+                </Pressable>
+                <Text style={[Typography.label3, s.hintGuideText]}>
+                  막히는 순간에만 눌러서 힌트를 열어보세요
+                </Text>
+              </>
+            ) : (
+              <View style={s.hintRewardPanel}>
+                <View style={s.hintRewardTop}>
+                  <View style={s.hintRewardBadge}>
+                    <Text style={[Typography.label2, { color:Colors.orange }]}>힌트 상자 열림</Text>
+                  </View>
+                  <Text style={[Typography.label3, { color:Colors.ink3 }]}>포인트 1 사용</Text>
+                </View>
+                <Text style={[Typography.label2, { color:Colors.ink2, marginBottom:6 }]}>영영풀이 뜻</Text>
+                <Text style={[Typography.body3, { color:Colors.ink, lineHeight:21 }]}>
+                  {typingHintLoading
+                    ? '영영풀이 뜻을 정리하고 있어요...'
+                    : typingHintKo || '영영풀이 한글뜻을 아직 준비하지 못했어요.'}
+                </Text>
+              </View>
+            )}
           </View>
           <TextInput
             style={[s.typeInput, tState==='ok' && s.typeOk, tState==='err' && s.typeErr]}
@@ -1146,7 +1291,7 @@ JSON 배열만 응답 (다른 텍스트 없이):
           )}
         </View>
         <View style={s.bottomBar}>
-          <Pressable style={s.skipBtn} onPress={() => { if(tIdx+1<words.length){setTIdx(i=>i+1);setTVal('');setTState('idle');}else finishStep(); }}>
+          <Pressable style={s.skipBtn} onPress={() => { if(tIdx+1<words.length){setTIdx(i=>i+1);setTVal('');setTState('idle');setTypingHintUnlocked(false);}else finishStep(); }}>
             <Text style={[Typography.bold2, { color:Colors.ink3 }]}>건너뛰기</Text>
           </Pressable>
           <Pressable style={s.confirmBtn} onPress={submitTyping}>
@@ -1168,6 +1313,18 @@ const s = StyleSheet.create({
   progFill:   { height:'100%', backgroundColor:Colors.brand, borderRadius:99 },
   wordCard:   { backgroundColor:Colors.white, borderRadius:20, borderWidth:1, borderColor:Colors.line, padding:24, alignItems:'center', marginBottom:16 },
   addWordBtn: { paddingHorizontal:14, paddingVertical:6, borderRadius:99, borderWidth:1.5, borderColor:Colors.line, backgroundColor:Colors.bg },
+  hintToggleBtn:{ marginTop:10, paddingHorizontal:14, paddingVertical:8, borderRadius:99, borderWidth:1, borderColor:'#DDD9FF', backgroundColor:Colors.brandBg },
+  hintGuideText:{ color:Colors.ink3, marginTop:10, textAlign:'center', lineHeight:18 },
+  hintPanel:  { alignSelf:'stretch', marginTop:14, backgroundColor:Colors.bg, borderRadius:16, borderWidth:1, borderColor:Colors.line, padding:14 },
+  hintBlock:  { alignSelf:'stretch' },
+  hintDivider:{ height:1, backgroundColor:Colors.line, marginVertical:12 },
+  hintScoreRow:{ width:'100%', flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:14 },
+  hintScoreBadge:{ backgroundColor:Colors.orangeBg, borderRadius:99, paddingHorizontal:12, paddingVertical:6 },
+  hintActionBtn:{ marginTop:14, paddingHorizontal:14, paddingVertical:8, borderRadius:99, borderWidth:1, borderColor:'#F6D6C9', backgroundColor:Colors.orangeBg },
+  hintActionBtnDisabled:{ opacity:0.55 },
+  hintRewardPanel:{ alignSelf:'stretch', marginTop:14, backgroundColor:Colors.orangeBg, borderRadius:16, borderWidth:1, borderColor:'#F6D6C9', padding:14 },
+  hintRewardTop:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
+  hintRewardBadge:{ backgroundColor:Colors.white, borderRadius:99, paddingHorizontal:12, paddingVertical:6 },
   toastBox:   { backgroundColor:Colors.white, borderRadius:12, borderWidth:1, borderColor:Colors.line, paddingHorizontal:14, paddingVertical:10, marginBottom:12 },
   choice:     { flexDirection:'row', alignItems:'center', gap:10, borderRadius:12, borderWidth:1.5, padding:13, marginBottom:8 },
   cnum:       { width:26, height:26, borderRadius:7, alignItems:'center', justifyContent:'center', flexShrink:0 },

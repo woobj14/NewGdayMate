@@ -20,10 +20,6 @@ import { ChevronRight, Search, BookOpen, MessageSquare, FileText, Layers } from 
 import { Shadow } from '../../../constants/shadow';
 import { Typography } from '../../../constants/typography';
 
-// ── 상수 ────────────────────────────────────────────────────────
-const GRADES     = ['전체','중1','중2','중3','고1','고2'];
-const PUBLISHERS = ['전체','천재교육','미래엔','동아출판','YBM'];
-
 // 트랙 표시 순서 (단원 내 정렬)
 const TRACK_ORDER: ContentType[] = ['word','dialog','reading','grammar'];
 
@@ -50,6 +46,13 @@ function btnLabel(pct: number) {
   return              '학습 시작 →';
 }
 
+function gradeSortValue(grade: string) {
+  const normalized = String(grade ?? '').trim();
+  const order = ['중1', '중2', '중3', '고1', '고2', '고3'];
+  const idx = order.indexOf(normalized);
+  return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER;
+}
+
 export default function LearnIndexScreen() {
   const router = useRouter();
   const { lessons, loading, getPct } = useLesson();
@@ -60,6 +63,33 @@ export default function LearnIndexScreen() {
   const [tab,    setTab]    = useState<'unit' | 'list'>('unit'); // 단원별 / 전체 목록
 
   const data = lessons.length > 0 ? lessons : DEMO;
+
+  const gradeOptions = useMemo(() => {
+    const grades = Array.from(
+      new Set(
+        data
+          .map(item => String(item.grade ?? '').trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => {
+      const aValue = gradeSortValue(a);
+      const bValue = gradeSortValue(b);
+      if (aValue !== bValue) return aValue - bValue;
+      return a.localeCompare(b, 'ko');
+    });
+    return ['전체', ...grades];
+  }, [data]);
+
+  const publisherOptions = useMemo(() => {
+    const publishers = Array.from(
+      new Set(
+        data
+          .map(item => String(item.publisher ?? '').trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, 'ko'));
+    return ['전체', ...publishers];
+  }, [data]);
 
   // 필터 적용
   const filtered = useMemo(() => data.filter(l => {
@@ -148,7 +178,7 @@ export default function LearnIndexScreen() {
         {/* 필터 */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom:6 }}>
           <View style={{ flexDirection:'row', gap:6 }}>
-            {GRADES.map(g => (
+            {gradeOptions.map(g => (
               <Pressable key={g} onPress={() => setGrade(g)}
                 style={[s.pill, grade===g && s.pillActive]}>
                 <Text style={[Typography.label2, { color:grade===g ? '#fff' : Colors.ink3 }]}>{g}</Text>
@@ -158,7 +188,7 @@ export default function LearnIndexScreen() {
         </ScrollView>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection:'row', gap:6 }}>
-            {PUBLISHERS.map(p => (
+            {publisherOptions.map(p => (
               <Pressable key={p} onPress={() => setPub(p)}
                 style={[s.pill, pub===p && s.pillActive]}>
                 <Text style={[Typography.label2, { color:pub===p ? '#fff' : Colors.ink3 }]}>{p}</Text>

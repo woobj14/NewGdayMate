@@ -128,6 +128,7 @@ export interface ParsedWord {
   pos:    string;   // n. / v. / adj. / adv.
   ko:     string;   // 한글 뜻
   def:    string;   // 영영풀이
+  defKo?: string;   // 영영풀이 한글뜻
   syn:    string;   // 유의어
   grade:  string;   // 중1~고3
 }
@@ -293,6 +294,7 @@ function sanitizeParsedContent(
         pos: String(word?.pos ?? '').trim(),
         ko: String(word?.ko ?? '').trim(),
         def: String(word?.def ?? '').trim(),
+        defKo: String(word?.defKo ?? '').trim(),
         syn: String(word?.syn ?? '').trim(),
         grade: String(word?.grade ?? grade).trim() || grade,
       }))
@@ -475,6 +477,7 @@ export function buildParsedContentFallback(
       pos: pos || '',
       ko: ko || '확인 필요',
       def: 'AI 분석 재시도 필요',
+      defKo: '',
       syn: '',
       grade,
     });
@@ -745,6 +748,7 @@ ${text}
       "pos": "품사(n./v./adj./adv.)",
       "ko": "한글 뜻",
       "def": "영영풀이 (15단어 이내)",
+      "defKo": "영영풀이의 자연스러운 한국어 뜻",
       "syn": "유의어 1~2개",
       "grade": "${grade}"
     }
@@ -756,6 +760,7 @@ ${text}
 
 규칙:
 - words: ${contentType === 'word' ? `입력된 영어 단어/숙어를 누락 없이 전부 변환. 최대 ${WORD_UPLOAD_MAX_ITEMS}개까지 허용` : `${grade} 수준 핵심 어휘 최대 30개 (기본 단어 제외)`}
+- 단어 항목의 defKo에는 def 문장을 한국어로 자연스럽게 풀어 쓴 뜻을 넣으세요. 단순히 ko를 반복하지 마세요.
 - grammarPoints: 주요 문법 구조 최대 5개
 - grammarSections: grammar가 아니면 반드시 빈 배열
 - summary: 대화문/본문의 경우만 작성, 단어/문법이면 빈 문자열
